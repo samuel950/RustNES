@@ -36,10 +36,11 @@ impl CPU {
             register_y: 0,
             status: 0b0010_0000,
             program_counter: 0,
+            memory: [0; 0xFFFF],
         }
     }
 
-    fn mem_read_u16(&mut self, pos: u16) -> u16 {
+    fn mem_read_u16(&self, pos: u16) -> u16 {
         let lo = self.mem_read(pos) as u16;
         let hi = self.mem_read(pos + 1) as u16; //visit the next cell to grab the last 8 bits of data.
         (hi << 8) | lo
@@ -71,6 +72,9 @@ impl CPU {
         self.load(program);
         self.reset();
         self.run();
+    }
+    fn is_negative(&self, target: u8) -> bool {
+        target & 0b1000_0000 == 0
     }
     fn get_operand_addressing_mode(&self, mode: &AddressingMode) -> u16 {
         match mode {
@@ -130,15 +134,90 @@ impl CPU {
                     self.lda(&AddressingMode::Immediate);
                     self.program_counter += 1;
                 }
+                0xA5 => {
+                    //LDA-ZP
+                    self.lda(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xB5 => {
+                    //LDA-ZPX
+                    self.lda(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0xAD => {
+                    //LDA-ABS
+                    self.lda(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0xBD => {
+                    //LDA-ABSX
+                    self.lda(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
+                0xB9 => {
+                    //LDA-ABSY
+                    self.lda(&AddressingMode::Absolute_Y);
+                    self.program_counter += 2;
+                }
+                0xA1 => {
+                    //LDA-INDX
+                    self.lda(&AddressingMode::Indirect_X);
+                    self.program_counter += 1;
+                }
+                0xB1 => {
+                    //LDA-INDY
+                    self.lda(&AddressingMode::Indirect_Y);
+                    self.program_counter += 1;
+                }
                 0xA2 => {
                     //LDX-I
                     self.ldx(&AddressingMode::Immediate);
                     self.program_counter += 1;
                 }
+                0xA6 => {
+                    //LDX-ZP
+                    self.ldx(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xB6 => {
+                    //LDX-ZPY
+                    self.ldx(&AddressingMode::ZeroPage_Y);
+                    self.program_counter += 1;
+                }
+                0xAE => {
+                    //LDX-ABS
+                    self.ldx(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0xBE => {
+                    //LDX-ABSY
+                    self.ldx(&AddressingMode::Absolute_Y);
+                    self.program_counter += 2;
+                }
                 0xA0 => {
                     //LDY-I
                     self.ldy(&AddressingMode::Immediate);
                     self.program_counter += 1;
+                }
+                0xA4 => {
+                    //LDY-ZP
+                    self.ldy(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xB4 => {
+                    //LDY-ZPX
+                    self.ldy(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0xAC => {
+                    //LDY-ABS
+                    self.ldy(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0xBC => {
+                    //LDY-ABSX
+                    self.ldy(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
                 }
                 0xAA => {
                     //TAX
@@ -152,6 +231,10 @@ impl CPU {
                     //brk
                     return;
                 }
+                0xEA => {
+                    //nop
+                    continue;
+                }
                 _ => todo!(),
             }
         }
@@ -159,6 +242,9 @@ impl CPU {
     /*
     Cpu instruction functions start
      */
+    fn adc(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+    }
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
         self.set_zn_flags_v1(self.register_x);
@@ -196,7 +282,7 @@ impl CPU {
             //then set zero flag
             self.status = self.status | 0b0000_0010;
         } else {
-            self.status = self.status & 0b1111_1101; //sets z    bit to 0 and preserves rest of bits
+            self.status = self.status & 0b1111_1101; //sets zero bit to 0 and preserves rest of bits
         }
         if reg & 0b1000_0000 != 0 {
             //check if bit in 7th pos is set, ie if bit in pos 7 is 1 than calculation should not equal 0
@@ -205,54 +291,4 @@ impl CPU {
             self.status = self.status & 0b0111_1111; //sets n flag to 0 and preserves rest of bits
         }
     }
-
-    /*pub fn interpret(&mut self, program: Vec<u8>) {
-        self.program_counter = 0;
-        loop {
-            let opscode = self.mem_read(self.program_counter);
-            //let opscode = program[self.program_counter as usize];
-            self.program_counter += 1;
-            match opscode {
-                0xE8 => {
-                    //INX
-                    self.inx();
-                }
-                0xC8 => {
-                    //INY
-                    self.iny();
-                }
-                0xA9 => {
-                    //LDA-I
-                    let param = program[self.program_counter as usize];
-                    self.program_counter += 1;
-                    self.lda(param);
-                }
-                0xA2 => {
-                    //LDX-I
-                    let param = program[self.program_counter as usize];
-                    self.program_counter += 1;
-                    self.ldx(param);
-                }
-                0xA0 => {
-                    //LDY-I
-                    let param = program[self.program_counter as usize];
-                    self.program_counter += 1;
-                    self.ldy(param);
-                }
-                0xAA => {
-                    //TAX
-                    self.tax();
-                }
-                0xA8 => {
-                    //TAY
-                    self.tay();
-                }
-                0x00 => {
-                    //brk
-                    return;
-                }
-                _ => todo!(),
-            }
-        }
-    }*/
 }
