@@ -12,6 +12,15 @@ pub enum AddressingMode {
     Indirect_Y,
     NotSupported,
 }
+pub enum Flag {
+    Carry,
+    Zero,
+    IRQ,
+    Dec,
+    Break,
+    Overflow,
+    Negative,
+}
 pub struct CPU {
     pub register_a: u8,
     pub register_x: u8,
@@ -74,7 +83,10 @@ impl CPU {
         self.run();
     }
     fn is_negative(&self, target: u8) -> bool {
-        target & 0b1000_0000 == 0
+        target & 0b1000_0000 != 0
+    }
+    fn is_cflag_set(&self) -> bool {
+        self.status & 0b0000_0001 != 0
     }
     fn get_operand_addressing_mode(&self, mode: &AddressingMode) -> u16 {
         match mode {
@@ -115,6 +127,111 @@ impl CPU {
                 panic!("Addressing mode {:?} is not supported!", mode);
             }
         }
+    }
+    /*
+     * * * * * * * * * * Flag functions start here * * * * * * * * * *
+     */
+    fn enable_flag(&mut self, flag: &Flag) {
+        match flag {
+            Flag::Carry => self.status = self.status | 0b0000_0001,
+            Flag::Zero => self.status = self.status | 0b0000_0010,
+            Flag::IRQ => self.status = self.status | 0b0000_0100,
+            Flag::Dec => self.status = self.status | 0b0000_1000,
+            Flag::Break => self.status = self.status | 0b0001_0000,
+            Flag::Overflow => self.status = self.status | 0b0100_0000,
+            Flag::Negative => self.status = self.status | 0b1000_0000,
+        }
+    }
+    fn disable_flag(&mut self, flag: &Flag) {
+        match flag {
+            Flag::Carry => self.status = self.status & 0b1111_1110,
+            Flag::Zero => self.status = self.status & 0b1111_1101,
+            Flag::IRQ => self.status = self.status & 0b1111_1011,
+            Flag::Dec => self.status = self.status & 0b1111_0111,
+            Flag::Break => self.status = self.status & 0b1110_1111,
+            Flag::Overflow => self.status = self.status & 0b1011_1111,
+            Flag::Negative => self.status = self.status & 0b0111_1111,
+        }
+    }
+    fn get_flag_status(&self, flag: &Flag) -> bool {
+        match flag {
+            Flag::Carry => self.status & 0b0000_0001 != 0,
+            Flag::Zero => self.status & 0b0000_0010 != 0,
+            Flag::IRQ => self.status & 0b0000_0100 != 0,
+            Flag::Dec => self.status & 0b0000_1000 != 0,
+            Flag::Break => self.status & 0b0001_0000 != 0,
+            Flag::Overflow => self.status & 0b0100_0000 != 0,
+            Flag::Negative => self.status & 0b1000_0000 != 0,
+        }
+    }
+    fn set_zn_flags_v1(&mut self, reg: u8) {
+        //z->set if ? = 0|n->set if bit 7 of ? is set
+        if reg == 0 {
+            //then set zero flag
+            self.enable_flag(&Flag::Zero);
+        } else {
+            self.disable_flag(&Flag::Zero); //sets zero bit to 0 and preserves rest of bits
+        }
+        if self.is_negative(reg) {
+            //TODO: maybe get rid of the helper function!?
+            //check if bit in 7th pos is set, ie if bit in pos 7 is 1 than calculation should not equal 0
+            self.enable_flag(&Flag::Negative);
+        } else {
+            self.disable_flag(&Flag::Negative); //sets n flag to 0 and preserves rest of bits
+        }
+    }
+    /*
+     * * * * * * * * * * Cpu instruction functions start here * * * * * * * * * *
+     */
+    fn adc(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.add(self.mem_read(addr));
+    }
+    fn add(&mut self, addend: u8) {
+        let status_carry: u16 = if self.get_flag_status(&Flag::Carry) {
+            1
+        } else {
+            0
+        };
+        let sum: u16 = self.register_a as u16 + addend as u16 + status_carry;
+        let carry = sum > 0xff;
+        if carry {
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        let result = sum as u8;
+    }
+    fn inx(&mut self) {
+        self.register_x = self.register_x.wrapping_add(1);
+        self.set_zn_flags_v1(self.register_x);
+    }
+    fn iny(&mut self) {
+        self.register_y = self.register_y.wrapping_add(1);
+        self.set_zn_flags_v1(self.register_y);
+    }
+    fn lda(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.register_a = self.mem_read(addr);
+        self.set_zn_flags_v1(self.register_a);
+    }
+    fn ldx(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.register_x = self.mem_read(addr);
+        self.set_zn_flags_v1(self.register_x);
+    }
+    fn ldy(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.register_y = self.mem_read(addr);
+        self.set_zn_flags_v1(self.register_y);
+    }
+    fn tax(&mut self) {
+        self.register_x = self.register_a;
+        self.set_zn_flags_v1(self.register_x);
+    }
+    fn tay(&mut self) {
+        self.register_y = self.register_a;
+        self.set_zn_flags_v1(self.register_y);
     }
     pub fn run(&mut self) {
         loop {
@@ -237,58 +354,6 @@ impl CPU {
                 }
                 _ => todo!(),
             }
-        }
-    }
-    /*
-    Cpu instruction functions start
-     */
-    fn adc(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_addressing_mode(mode);
-    }
-    fn inx(&mut self) {
-        self.register_x = self.register_x.wrapping_add(1);
-        self.set_zn_flags_v1(self.register_x);
-    }
-    fn iny(&mut self) {
-        self.register_y = self.register_y.wrapping_add(1);
-        self.set_zn_flags_v1(self.register_y);
-    }
-    fn lda(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_addressing_mode(mode);
-        self.register_a = self.mem_read(addr);
-        self.set_zn_flags_v1(self.register_a);
-    }
-    fn ldx(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_addressing_mode(mode);
-        self.register_x = self.mem_read(addr);
-        self.set_zn_flags_v1(self.register_x);
-    }
-    fn ldy(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_addressing_mode(mode);
-        self.register_y = self.mem_read(addr);
-        self.set_zn_flags_v1(self.register_y);
-    }
-    fn tax(&mut self) {
-        self.register_x = self.register_a;
-        self.set_zn_flags_v1(self.register_x);
-    }
-    fn tay(&mut self) {
-        self.register_y = self.register_a;
-        self.set_zn_flags_v1(self.register_y);
-    }
-    fn set_zn_flags_v1(&mut self, reg: u8) {
-        //z->set if ? = 0|n->set if bit 7 of ? is set
-        if reg == 0 {
-            //then set zero flag
-            self.status = self.status | 0b0000_0010;
-        } else {
-            self.status = self.status & 0b1111_1101; //sets zero bit to 0 and preserves rest of bits
-        }
-        if reg & 0b1000_0000 != 0 {
-            //check if bit in 7th pos is set, ie if bit in pos 7 is 1 than calculation should not equal 0
-            self.status = self.status | 0b1000_0000;
-        } else {
-            self.status = self.status & 0b0111_1111; //sets n flag to 0 and preserves rest of bits
         }
     }
 }
