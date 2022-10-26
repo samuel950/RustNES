@@ -36,6 +36,7 @@ cycles - how long an instruction should roughly take.
 bytes - tells you if there are additional paramaters for command ie 2 bytes is 1 extra param.
 address - points to a 1 byte cell (8bits) ie think how that relates to getting 16bits of data.
 program counter - the current memory address. 2 bytes increment once, 3 bytes increment twice etc.
+-In 2's complement, to make positive number negative, invert bits and add 1.
  */
 impl CPU {
     pub fn new() -> Self {
@@ -173,7 +174,6 @@ impl CPU {
             self.disable_flag(&Flag::Zero); //sets zero bit to 0 and preserves rest of bits
         }
         if self.is_negative(reg) {
-            //TODO: maybe get rid of the helper function!?
             //check if bit in 7th pos is set, ie if bit in pos 7 is 1 than calculation should not equal 0
             self.enable_flag(&Flag::Negative);
         } else {
@@ -186,6 +186,7 @@ impl CPU {
     fn adc(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_addressing_mode(mode);
         self.add(self.mem_read(addr));
+        self.set_zn_flags_v1(self.register_a);
     }
     fn add(&mut self, addend: u8) {
         let status_carry: u16 = if self.get_flag_status(&Flag::Carry) {
@@ -194,13 +195,29 @@ impl CPU {
             0
         };
         let sum: u16 = self.register_a as u16 + addend as u16 + status_carry;
-        let carry = sum > 0xff;
+        let carry = sum > 0xff; //cant be represented as unsigned ie > 255 then carry
         if carry {
             self.enable_flag(&Flag::Carry);
         } else {
             self.disable_flag(&Flag::Carry);
         }
         let result = sum as u8;
+        /*
+         * With XOR were really just trying to check if the most significant
+         * bit of the original addends and the result are different. If say
+         * both of them are different from the result we would for example
+         * get 1 & 1 & 1 (with leftmost bit) which means overflow happened.
+         * If the the signs of both addends are different from the result
+         * then overflow occurs. If one or both of the addends has a
+         * different sign from the result then overflow did not occur.
+         * IE 1 & 0 & 1 or 0 & 0 & 1 etc should terminate to 0.
+         */
+        if (self.register_a ^ result) & (addend ^ result) & 0b1000_0000 == 0 {
+            self.disable_flag(&Flag::Overflow);
+        } else {
+            self.enable_flag(&Flag::Overflow);
+        }
+        self.register_a = result;
     }
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
@@ -238,6 +255,46 @@ impl CPU {
             let opscode = self.mem_read(self.program_counter);
             self.program_counter += 1;
             match opscode {
+                0x69 => {
+                    //ADC-I
+                    self.adc(&AddressingMode::Immediate);
+                    self.program_counter += 1;
+                }
+                0x65 => {
+                    //ADC-ZP
+                    self.adc(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x75 => {
+                    //ADC-ZPX
+                    self.adc(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x6D => {
+                    //ADC-ABS
+                    self.adc(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x7D => {
+                    //ADC-ABSX
+                    self.adc(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
+                0x79 => {
+                    //ADC-ABSY
+                    self.adc(&AddressingMode::Absolute_Y);
+                    self.program_counter += 2;
+                }
+                0x61 => {
+                    //ADC-INDX
+                    self.adc(&AddressingMode::Indirect_X);
+                    self.program_counter += 1;
+                }
+                0x71 => {
+                    //ADC-INDY
+                    self.adc(&AddressingMode::Indirect_Y);
+                    self.program_counter += 1;
+                }
                 0xE8 => {
                     //INX
                     self.inx();
