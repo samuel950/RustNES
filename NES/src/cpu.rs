@@ -52,14 +52,16 @@ impl CPU {
 
     fn mem_read_u16(&self, pos: u16) -> u16 {
         let lo = self.mem_read(pos) as u16;
-        let hi = self.mem_read(pos + 1) as u16; //visit the next cell to grab the last 8 bits of data.
+        //let hi = self.mem_read(pos + 1) as u16; //visit the next cell to grab the last 8 bits of data.
+        let hi = self.mem_read(pos.wrapping_add(1)) as u16;
         (hi << 8) | lo
     }
     fn mem_write_u16(&mut self, pos: u16, data: u16) {
         let hi = (data >> 8) as u8; //basically shifts hi 8 bits to the right to allow truncating
         let lo = (data & 0xff) as u8; //zero out 8 hi bits to allow truncating
         self.mem_write(pos, lo);
-        self.mem_write(pos + 1, hi);
+        //self.mem_write(pos + 1, hi);
+        self.mem_write(pos.wrapping_add(1), hi);
     }
     fn mem_read(&self, addr: u16) -> u8 {
         self.memory[addr as usize]
@@ -113,15 +115,18 @@ impl CPU {
             AddressingMode::Indirect_X => {
                 let indr_addr: u8 = self.mem_read(self.program_counter);
                 let ptr: u8 = indr_addr.wrapping_add(self.register_x);
-                let lo = self.mem_read(ptr as u16) as u16;
+                /*let lo = self.mem_read(ptr as u16) as u16;
                 let hi = self.mem_read(ptr.wrapping_add(1) as u16) as u16;
-                (hi << 8) | lo //dont need to 0 out first 8 bits because lo is originally 8 bits anyways.
+                (hi << 8) | lo //dont need to 0 out first 8 bits because lo is originally 8 bits anyways.*/
+                self.mem_read_u16(ptr)
             }
             AddressingMode::Indirect_Y => {
                 let indr_addr: u8 = self.mem_read(self.program_counter); //starting point of a 16bit address.
-                let lo = self.mem_read(indr_addr as u16) as u16;
+
+                /*let lo = self.mem_read(indr_addr as u16) as u16;
                 let hi = self.mem_read(indr_addr.wrapping_add(1) as u16) as u16;
-                let ptr: u16 = (hi << 8) | lo;
+                let ptr: u16 = (hi << 8) | lo;*/
+                let ptr = self.mem_read_u16(indr_addr);
                 ptr.wrapping_add(self.register_y as u16)
             }
             AddressingMode::NotSupported => {
@@ -166,7 +171,7 @@ impl CPU {
         }
     }
     fn set_zn_flags_v1(&mut self, reg: u8) {
-        //z->set if ? = 0|n->set if bit 7 of ? is set
+        //z->set if ? = 0 and n->set if bit 7 of ? is set
         if reg == 0 {
             //then set zero flag
             self.enable_flag(&Flag::Zero);
@@ -195,8 +200,8 @@ impl CPU {
             0
         };
         let sum: u16 = self.register_a as u16 + addend as u16 + status_carry;
-        let carry = sum > 0xff; //cant be represented as unsigned ie > 255 then carry
-        if carry {
+        //let carry = sum > 0b1111_1111; //cant be represented as unsigned ie > 255 then carry
+        if sum > 0b1111_1111 {
             self.enable_flag(&Flag::Carry);
         } else {
             self.disable_flag(&Flag::Carry);
@@ -213,11 +218,30 @@ impl CPU {
          * IE 1 & 0 & 1 or 0 & 0 & 1 etc should terminate to 0.
          */
         if (self.register_a ^ result) & (addend ^ result) & 0b1000_0000 == 0 {
+            //short hand for checking signs of addends and results
             self.disable_flag(&Flag::Overflow);
         } else {
             self.enable_flag(&Flag::Overflow);
         }
         self.register_a = result;
+    }
+    fn and(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.register_a = self.register_a & self.mem_read(addr);
+        self.set_zn_flags_v1(self.register_a);
+    }
+    fn asl(&mut self, mode: &AddressingMode) {
+        //same effect as multiplying by 2
+        let addr = self.get_operand_addressing_mode(mode);
+        let operand = self.mem_read(addr);
+        if operand > 0b0111_1111 {
+            //carry threshold is greater than 255. so if operand is strictly greater than 127(times 2), then need to set carry.
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        let temp = operand << 1;
+        todo!();
     }
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
@@ -295,6 +319,52 @@ impl CPU {
                     self.adc(&AddressingMode::Indirect_Y);
                     self.program_counter += 1;
                 }
+                /*
+                 * * * * * * * * * * AND OPCODES * * * * * * * * * *
+                 */
+                0x29 => {
+                    //AND-I
+                    self.and(&AddressingMode::Immediate);
+                    self.program_counter += 1;
+                }
+                0x25 => {
+                    //AND-ZP
+                    self.and(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x35 => {
+                    //AND-ZPX
+                    self.and(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x2D => {
+                    //AND-ABS
+                    self.and(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x3D => {
+                    //AND-ABSX
+                    self.and(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
+                0x39 => {
+                    //AND-ABSY
+                    self.and(&AddressingMode::Absolute_Y);
+                    self.program_counter += 2;
+                }
+                0x21 => {
+                    //AND-INDX
+                    self.and(&AddressingMode::Indirect_X);
+                    self.program_counter += 1;
+                }
+                0x31 => {
+                    //AND-INDY
+                    self.and(&AddressingMode::Indirect_Y);
+                    self.program_counter += 1;
+                }
+                /*
+                 * * * * * * * * * * INX/INY OPCODES * * * * * * * * * *
+                 */
                 0xE8 => {
                     //INX
                     self.inx();
@@ -303,6 +373,9 @@ impl CPU {
                     //INY
                     self.iny();
                 }
+                /*
+                 * * * * * * * * * * LDA OPCODES * * * * * * * * * *
+                 */
                 0xA9 => {
                     //LDA-I
                     self.lda(&AddressingMode::Immediate);
@@ -343,6 +416,9 @@ impl CPU {
                     self.lda(&AddressingMode::Indirect_Y);
                     self.program_counter += 1;
                 }
+                /*
+                 * * * * * * * * * * LDX OPCODES * * * * * * * * * *
+                 */
                 0xA2 => {
                     //LDX-I
                     self.ldx(&AddressingMode::Immediate);
@@ -368,6 +444,9 @@ impl CPU {
                     self.ldx(&AddressingMode::Absolute_Y);
                     self.program_counter += 2;
                 }
+                /*
+                 * * * * * * * * * * LDY OPCODES * * * * * * * * * *
+                 */
                 0xA0 => {
                     //LDY-I
                     self.ldy(&AddressingMode::Immediate);
