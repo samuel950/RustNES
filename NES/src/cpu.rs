@@ -255,6 +255,12 @@ impl CPU {
         self.mem_write(addr, operand);
         self.set_zn_flags_v1(operand);
     }
+    fn branch_set(&mut self, flag: &Flag) {
+        if self.get_flag_status(flag) {}
+    }
+    fn branch_clear(&mut self, flag: &Flag) {
+        if !self.get_flag_status(flag) {}
+    }
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
         self.set_zn_flags_v1(self.register_x);
