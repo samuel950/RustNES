@@ -118,7 +118,7 @@ impl CPU {
                 /*let lo = self.mem_read(ptr as u16) as u16;
                 let hi = self.mem_read(ptr.wrapping_add(1) as u16) as u16;
                 (hi << 8) | lo //dont need to 0 out first 8 bits because lo is originally 8 bits anyways.*/
-                self.mem_read_u16(ptr)
+                self.mem_read_u16(ptr as u16)
             }
             AddressingMode::Indirect_Y => {
                 let indr_addr: u8 = self.mem_read(self.program_counter); //starting point of a 16bit address.
@@ -126,7 +126,7 @@ impl CPU {
                 /*let lo = self.mem_read(indr_addr as u16) as u16;
                 let hi = self.mem_read(indr_addr.wrapping_add(1) as u16) as u16;
                 let ptr: u16 = (hi << 8) | lo;*/
-                let ptr = self.mem_read_u16(indr_addr);
+                let ptr = self.mem_read_u16(indr_addr as u16);
                 ptr.wrapping_add(self.register_y as u16)
             }
             AddressingMode::NotSupported => {
@@ -230,18 +230,30 @@ impl CPU {
         self.register_a = self.register_a & self.mem_read(addr);
         self.set_zn_flags_v1(self.register_a);
     }
-    fn asl(&mut self, mode: &AddressingMode) {
-        //same effect as multiplying by 2
-        let addr = self.get_operand_addressing_mode(mode);
-        let operand = self.mem_read(addr);
+    fn asl_accumulator(&mut self) {
+        let operand = self.register_a;
         if operand > 0b0111_1111 {
             //carry threshold is greater than 255. so if operand is strictly greater than 127(times 2), then need to set carry.
             self.enable_flag(&Flag::Carry);
         } else {
             self.disable_flag(&Flag::Carry);
         }
-        let temp = operand << 1;
-        todo!();
+        self.register_a = operand << 1;
+        self.set_zn_flags_v1(self.register_a);
+    }
+    fn asl(&mut self, mode: &AddressingMode) {
+        //same effect as multiplying by 2
+        let addr = self.get_operand_addressing_mode(mode);
+        let mut operand = self.mem_read(addr);
+        if operand > 0b0111_1111 {
+            //carry threshold is greater than 255. so if operand is strictly greater than 127(times 2), then need to set carry.
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        operand = operand << 1;
+        self.mem_write(addr, operand);
+        self.set_zn_flags_v1(operand);
     }
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
@@ -361,6 +373,33 @@ impl CPU {
                     //AND-INDY
                     self.and(&AddressingMode::Indirect_Y);
                     self.program_counter += 1;
+                }
+                /*
+                 * * * * * * * * * * ASL OPCODES * * * * * * * * * *
+                 */
+                0x0A => {
+                    //ASL-ACC
+                    self.asl_accumulator();
+                }
+                0x06 => {
+                    //ASL-ZP
+                    self.asl(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x16 => {
+                    //ASL-ZPX
+                    self.asl(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x0E => {
+                    //ASL-ABS
+                    self.asl(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x1E => {
+                    //ASL-ABSX
+                    self.asl(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * INX/INY OPCODES * * * * * * * * * *
