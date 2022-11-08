@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub enum AddressingMode {
@@ -291,6 +293,63 @@ impl CPU {
                 .wrapping_add(1)
                 .wrapping_add(displacement as u16);
         }
+    }
+    fn cmp(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let operand = self.mem_read(addr);
+        if self.register_a >= operand {
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        self.set_zn_flags_v1(self.register_a.wrapping_sub(operand));
+    }
+    fn cpx(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let operand = self.mem_read(addr);
+        if self.register_x >= operand {
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        self.set_zn_flags_v1(self.register_x.wrapping_sub(operand));
+    }
+    fn cpy(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let operand = self.mem_read(addr);
+        if self.register_y >= operand {
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        self.set_zn_flags_v1(self.register_y.wrapping_sub(operand));
+    }
+    fn dec(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let mut operand = self.mem_read(addr);
+        operand = operand.wrapping_sub(1);
+        self.mem_write(addr, operand);
+        self.set_zn_flags_v1(operand);
+    }
+    fn dex(&mut self) {
+        self.register_x = self.register_x.wrapping_sub(1);
+        self.set_zn_flags_v1(self.register_x);
+    }
+    fn dey(&mut self) {
+        self.register_y = self.register_y.wrapping_sub(1);
+        self.set_zn_flags_v1(self.register_y);
+    }
+    fn eor(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.register_a = self.register_a ^ self.mem_read(addr);
+        self.set_zn_flags_v1(self.register_a);
+    }
+    fn inc(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let mut operand = self.mem_read(addr);
+        operand = operand.wrapping_add(1);
+        self.mem_write(addr, operand);
+        self.set_zn_flags_v1(operand);
     }
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
