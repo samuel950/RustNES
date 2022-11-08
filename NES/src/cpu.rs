@@ -255,11 +255,42 @@ impl CPU {
         self.mem_write(addr, operand);
         self.set_zn_flags_v1(operand);
     }
+    fn bit(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let operand = self.register_a & self.mem_read(addr);
+        if operand == 0 {
+            self.enable_flag(&Flag::Zero);
+        } else {
+            self.disable_flag(&Flag::Zero);
+        }
+        if operand & 0b1000_0000 != 0 {
+            self.enable_flag(&Flag::Negative);
+        } else {
+            self.disable_flag(&Flag::Negative);
+        }
+        if operand & 0b0100_0000 != 0 {
+            self.enable_flag(&Flag::Overflow);
+        } else {
+            self.disable_flag(&Flag::Overflow);
+        }
+    }
     fn branch_set(&mut self, flag: &Flag) {
-        if self.get_flag_status(flag) {}
+        if self.get_flag_status(flag) {
+            let displacement = self.mem_read(self.program_counter) as i8;
+            self.program_counter = self
+                .program_counter
+                .wrapping_add(1)
+                .wrapping_add(displacement as u16);
+        }
     }
     fn branch_clear(&mut self, flag: &Flag) {
-        if !self.get_flag_status(flag) {}
+        if !self.get_flag_status(flag) {
+            let displacement = self.mem_read(self.program_counter) as i8;
+            self.program_counter = self
+                .program_counter
+                .wrapping_add(1)
+                .wrapping_add(displacement as u16);
+        }
     }
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
@@ -406,6 +437,73 @@ impl CPU {
                     //ASL-ABSX
                     self.asl(&AddressingMode::Absolute_X);
                     self.program_counter += 2;
+                }
+                /*
+                 * * * * * * * * * * Bit Test OPCODES * * * * * * * * * *
+                 */
+                0x24 => {
+                    //BIT-ZP
+                    self.bit(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x2C => {
+                    //BIT-ABS
+                    self.bit(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                /*
+                 * * * * * * * * * * Branch OPCODES * * * * * * * * * *
+                 */
+                0x90 => {
+                    //BCC-Clear
+                    self.branch_clear(&Flag::Carry);
+                }
+                0xB0 => {
+                    //BCS-Set
+                    self.branch_set(&Flag::Carry);
+                }
+                0xF0 => {
+                    //BEQ-Set
+                    self.branch_set(&Flag::Zero);
+                }
+                0xD0 => {
+                    //BNE-Clear
+                    self.branch_clear(&Flag::Zero);
+                }
+                0x30 => {
+                    //BMI-Set
+                    self.branch_set(&Flag::Negative);
+                }
+                0x10 => {
+                    //BPL-Clear
+                    self.branch_clear(&Flag::Negative);
+                }
+                0x50 => {
+                    //BVC-Clear
+                    self.branch_clear(&Flag::Overflow);
+                }
+                0x70 => {
+                    //BVS-Set
+                    self.branch_set(&Flag::Overflow);
+                }
+                /*
+                 * * * * * * * * * * Clear OPCODES * * * * * * * * * *
+                 */
+                0x18 => {
+                    //CLC
+                    self.disable_flag(&Flag::Carry);
+                }
+                0xD8 => {
+                    //CLD
+                    self.disable_flag(&Flag::Dec);
+                }
+                0x58 => {
+                    //CLI
+                    self.disable_flag(&Flag::IRQ);
+                }
+                0xB8 => {
+                    //CLV
+                    self.disable_flag(&Flag::Overflow);
                 }
                 /*
                  * * * * * * * * * * INX/INY OPCODES * * * * * * * * * *
