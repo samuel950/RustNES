@@ -1,5 +1,3 @@
-use std::ops::Add;
-
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub enum AddressingMode {
@@ -28,6 +26,7 @@ pub struct CPU {
     pub register_x: u8,
     pub register_y: u8,
     pub status: u8,
+    pub stack_ptr: u8,
     pub program_counter: u16,
     memory: [u8; 0xFFFF],
 }
@@ -47,6 +46,7 @@ impl CPU {
             register_x: 0,
             register_y: 0,
             status: 0b0010_0000,
+            stack_ptr: 0xff,
             program_counter: 0,
             memory: [0; 0xFFFF],
         }
@@ -89,9 +89,6 @@ impl CPU {
     }
     fn is_negative(&self, target: u8) -> bool {
         target & 0b1000_0000 != 0
-    }
-    fn is_cflag_set(&self) -> bool {
-        self.status & 0b0000_0001 != 0
     }
     fn get_operand_addressing_mode(&self, mode: &AddressingMode) -> u16 {
         match mode {
@@ -387,6 +384,9 @@ impl CPU {
             let opscode = self.mem_read(self.program_counter);
             self.program_counter += 1;
             match opscode {
+                /*
+                 * * * * * * * * * * ADC OPCODES * * * * * * * * * *
+                 */
                 0x69 => {
                     //ADC-I
                     self.adc(&AddressingMode::Immediate);
@@ -565,8 +565,181 @@ impl CPU {
                     self.disable_flag(&Flag::Overflow);
                 }
                 /*
-                 * * * * * * * * * * INX/INY OPCODES * * * * * * * * * *
+                 * * * * * * * * * * CMP OPCODES * * * * * * * * * *
                  */
+                0xC9 => {
+                    //CMP-I
+                    self.cmp(&AddressingMode::Immediate);
+                    self.program_counter += 1;
+                }
+                0xC5 => {
+                    //CMP-ZP
+                    self.cmp(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xD5 => {
+                    //CMP-ZPX
+                    self.cmp(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0xCD => {
+                    //CMP-ABS
+                    self.cmp(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0xDD => {
+                    //CMP-ABSX
+                    self.cmp(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
+                0xD9 => {
+                    //CMP-ABSY
+                    self.cmp(&AddressingMode::Absolute_Y);
+                    self.program_counter += 2;
+                }
+                0xC1 => {
+                    //CMP-INDX
+                    self.cmp(&AddressingMode::Indirect_X);
+                    self.program_counter += 1;
+                }
+                0xD1 => {
+                    //CMP-INDY
+                    self.cmp(&AddressingMode::Indirect_Y);
+                    self.program_counter += 1;
+                }
+                /*
+                 * * * * * * * * * * CPX OPCODES * * * * * * * * * *
+                 */
+                0xE0 => {
+                    //CPX-I
+                    self.cpx(&AddressingMode::Immediate);
+                    self.program_counter += 1;
+                }
+                0xE4 => {
+                    //CPX-ZP
+                    self.cpx(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xEC => {
+                    //CPX-ABS
+                    self.cpx(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                /*
+                 * * * * * * * * * * CPY OPCODES * * * * * * * * * *
+                 */
+                0xC0 => {
+                    //CPY-I
+                    self.cpy(&AddressingMode::Immediate);
+                    self.program_counter += 1;
+                }
+                0xC4 => {
+                    //CPY-ZP
+                    self.cpy(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xCC => {
+                    //CPY-ABS
+                    self.cpy(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                /*
+                 * * * * * * * * * * DEC/DEX/DEY OPCODES * * * * * * * * * *
+                 */
+                0xC6 => {
+                    //DEC-ZP
+                    self.dec(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xD6 => {
+                    //DEC-ZPX
+                    self.dec(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0xCE => {
+                    //DEC-ABS
+                    self.dec(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0xDE => {
+                    //DEC-ABSX
+                    self.dec(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
+                0xCA => {
+                    //DEX
+                    self.dex();
+                }
+                0x88 => {
+                    //DEY
+                    self.dey();
+                }
+                /*
+                 * * * * * * * * * * EOR OPCODES * * * * * * * * * *
+                 */
+                0x49 => {
+                    //EOR-I
+                    self.eor(&AddressingMode::Immediate);
+                    self.program_counter += 1;
+                }
+                0x45 => {
+                    //EOR-ZP
+                    self.eor(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x55 => {
+                    //EOR-ZPX
+                    self.eor(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x4D => {
+                    //EOR-ABS
+                    self.eor(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x5D => {
+                    //EOR-ABSX
+                    self.eor(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
+                0x59 => {
+                    //EOR-ABSY
+                    self.eor(&AddressingMode::Absolute_Y);
+                    self.program_counter += 2;
+                }
+                0x41 => {
+                    //EOR-INDX
+                    self.eor(&AddressingMode::Indirect_X);
+                    self.program_counter += 1;
+                }
+                0x51 => {
+                    //EOR-INDY
+                    self.eor(&AddressingMode::Indirect_Y);
+                    self.program_counter += 1;
+                }
+                /*
+                 * * * * * * * * * * INC OPCODES * * * * * * * * * *
+                 */
+                0xE6 => {
+                    //INC-ZP
+                    self.inc(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xF6 => {
+                    //INC-ZPX
+                    self.inc(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0xEE => {
+                    //INC-ABS
+                    self.inc(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0xFE => {
+                    //INC-ABSX
+                    self.inc(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
                 0xE8 => {
                     //INX
                     self.inx();
