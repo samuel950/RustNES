@@ -392,6 +392,48 @@ impl CPU {
         self.register_y = self.mem_read(addr);
         self.set_zn_flags_v1(self.register_y);
     }
+    fn lsr_accumulator(&mut self) {
+        let operand = self.register_a;
+        if operand & 0b0000_0001 == 1 {
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        self.register_a = operand >> 1;
+        self.set_zn_flags_v1(self.register_a);
+    }
+    fn lsr(&mut self, mode: &AddressingMode) {
+        //same effect as dividing by 2
+        let addr = self.get_operand_addressing_mode(mode);
+        let mut operand = self.mem_read(addr);
+        if operand & 0b0000_0001 == 1 {
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        operand = operand >> 1;
+        self.mem_write(addr, operand);
+        self.set_zn_flags_v1(operand);
+    }
+    fn rol(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let mut operand = self.mem_read(addr);
+        let carry_isolate = self.status & 0b0000_0001;
+        if operand > 0b0111_1111 {
+            //carry threshold is greater than 255. so if operand is strictly greater than 127(times 2), then need to set carry.
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        operand = operand << 1;
+        operand = if carry_isolate == 1 {
+            operand | carry_isolate
+        } else {
+            operand & 0b1111_1110
+        };
+        self.mem_write(addr, operand);
+        self.set_zn_flags_v1(operand);
+    }
     fn tax(&mut self) {
         self.register_x = self.register_a;
         self.set_zn_flags_v1(self.register_x);
@@ -770,6 +812,32 @@ impl CPU {
                     self.iny();
                 }
                 /*
+                 * * * * * * * * * * JMP OPCODES * * * * * * * * * *
+                 */
+                0x4C => {
+                    //JMP-ABS
+                    let addr = self.get_operand_addressing_mode(&AddressingMode::Absolute);
+                    self.program_counter = addr;
+                }
+                0x6C => {
+                    //JMP-IND
+                    let addr = self.mem_read_u16(self.program_counter);
+                    let indirect_addr = if addr & 0x00FF == 0x00FF {
+                        let lo = self.mem_read(addr) as u16;
+                        let hi = self.mem_read(addr & 0xFF00) as u16;
+                        (hi << 8) | lo
+                    } else {
+                        self.mem_read_u16(addr)
+                    };
+                    self.program_counter = indirect_addr;
+                }
+                0x20 => {
+                    //JSR-ABS
+                    let addr = self.get_operand_addressing_mode(&AddressingMode::Absolute);
+                    self.stack_push_u16(self.program_counter + 1); //+ 2 - 1
+                    self.program_counter = addr;
+                }
+                /*
                  * * * * * * * * * * LDA OPCODES * * * * * * * * * *
                  */
                 0xA9 => {
@@ -868,6 +936,9 @@ impl CPU {
                     self.ldy(&AddressingMode::Absolute_X);
                     self.program_counter += 2;
                 }
+                /*
+                 * * * * * * * * * * LSR OPCODES * * * * * * * * * *
+                 */
                 0xAA => {
                     //TAX
                     self.tax();
