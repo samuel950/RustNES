@@ -30,6 +30,8 @@ pub struct CPU {
     pub program_counter: u16,
     memory: [u8; 0xFFFF],
 }
+const STACK_OFFSET: u16 = 0x100;
+const STACK_RESET: u8 = 0xfd;
 /*    7             6               5              4          3         2        1        0
 |  negative  |  overflow  |  unused always 1  |  break  |  decimal  |  IRQ  |  zero  |  Carry  | --> processor status flags
 glossary
@@ -46,7 +48,7 @@ impl CPU {
             register_x: 0,
             register_y: 0,
             status: 0b0010_0000,
-            stack_ptr: 0xff,
+            stack_ptr: STACK_RESET, //starts at 1fd per hardware specification
             program_counter: 0,
             memory: [0; 0xFFFF],
         }
@@ -70,6 +72,25 @@ impl CPU {
     }
     fn mem_write(&mut self, addr: u16, data: u8) {
         self.memory[addr as usize] = data;
+    }
+    fn stack_pop_u16(&mut self) -> u16 {
+        let lo = self.stack_pop() as u16;
+        let hi = self.stack_pop() as u16;
+        (hi << 8) | lo
+    }
+    fn stack_push_u16(&mut self, data: u16) {
+        let hi = (data >> 8) as u8;
+        let lo = (data & 0xff) as u8;
+        self.stack_push(hi);
+        self.stack_push(lo);
+    }
+    fn stack_pop(&mut self) -> u8 {
+        self.stack_ptr = self.stack_ptr.wrapping_add(1);
+        self.mem_read(STACK_OFFSET + self.stack_ptr as u16)
+    }
+    fn stack_push(&mut self, data: u8) {
+        self.mem_write(STACK_OFFSET + self.stack_ptr as u16, data);
+        self.stack_ptr = self.stack_ptr.wrapping_sub(1);
     }
     pub fn reset(&mut self) {
         self.register_a = 0;
