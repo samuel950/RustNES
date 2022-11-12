@@ -233,8 +233,8 @@ impl CPU {
          * both of them are different from the result we would for example
          * get 1 & 1 & 1 (with leftmost bit) which means overflow happened.
          * If the the signs of both addends are different from the result
-         * then overflow occurs. If one or both of the addends has a
-         * different sign from the result then overflow did not occur.
+         * then overflow occurs. If one or both of the addends has the
+         * same sign as the result then overflow did not occur.
          * IE 1 & 0 & 1 or 0 & 0 & 1 etc should terminate to 0.
          */
         if (self.register_a ^ result) & (addend ^ result) & 0b1000_0000 == 0 {
@@ -251,14 +251,12 @@ impl CPU {
         self.set_zn_flags_v1(self.register_a);
     }
     fn asl_accumulator(&mut self) {
-        let operand = self.register_a;
-        if operand > 0b0111_1111 {
-            //carry threshold is greater than 255. so if operand is strictly greater than 127(times 2), then need to set carry.
+        if self.register_a > 0b0111_1111 {
             self.enable_flag(&Flag::Carry);
         } else {
             self.disable_flag(&Flag::Carry);
         }
-        self.register_a = operand << 1;
+        self.register_a = self.register_a << 1;
         self.set_zn_flags_v1(self.register_a);
     }
     fn asl(&mut self, mode: &AddressingMode) {
@@ -393,13 +391,12 @@ impl CPU {
         self.set_zn_flags_v1(self.register_y);
     }
     fn lsr_accumulator(&mut self) {
-        let operand = self.register_a;
-        if operand & 0b0000_0001 == 1 {
+        if self.register_a & 0b0000_0001 == 1 {
             self.enable_flag(&Flag::Carry);
         } else {
             self.disable_flag(&Flag::Carry);
         }
-        self.register_a = operand >> 1;
+        self.register_a = self.register_a >> 1;
         self.set_zn_flags_v1(self.register_a);
     }
     fn lsr(&mut self, mode: &AddressingMode) {
@@ -414,6 +411,27 @@ impl CPU {
         operand = operand >> 1;
         self.mem_write(addr, operand);
         self.set_zn_flags_v1(operand);
+    }
+    fn ora(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.register_a = self.register_a | self.mem_read(addr);
+        self.set_zn_flags_v1(self.register_a);
+    }
+    fn rol_accumulator(&mut self) {
+        //isolating the carry flag
+        let carry_isolate = self.status & 0b0000_0001;
+        if self.register_a > 0b0111_1111 {
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        self.register_a = self.register_a << 1;
+        self.register_a = if carry_isolate == 1 {
+            self.register_a | carry_isolate
+        } else {
+            self.register_a & 0b1111_1110
+        };
+        self.set_zn_flags_v1(self.register_a);
     }
     fn rol(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_addressing_mode(mode);
@@ -938,6 +956,35 @@ impl CPU {
                 }
                 /*
                  * * * * * * * * * * LSR OPCODES * * * * * * * * * *
+                 */
+                /*
+                 * * * * * * * * * * ORA OPCODES * * * * * * * * * *
+                 */
+                /*
+                 * * * * * * * * * * PUSH/PULL OPCODES * * * * * * * * * *
+                 */
+                0x48 => {
+                    //PHA
+                    self.stack_push(self.register_a);
+                }
+                0x08 => {
+                    //PHP
+                    self.stack_push(self.status);
+                }
+                0x68 => {
+                    //PLA
+                    self.register_a = self.stack_pop();
+                    self.set_zn_flags_v1(self.register_a);
+                }
+                0x28 => {
+                    //PLP
+                    self.status = self.stack_pop();
+                }
+                /*
+                 * * * * * * * * * * ROL OPCODES * * * * * * * * * *
+                 */
+                /*
+                 * * * * * * * * * * ROR OPCODES * * * * * * * * * *
                  */
                 0xAA => {
                     //TAX
