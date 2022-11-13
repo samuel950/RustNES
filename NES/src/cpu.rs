@@ -447,7 +447,40 @@ impl CPU {
         operand = if carry_isolate == 1 {
             operand | carry_isolate
         } else {
-            operand & 0b1111_1110
+            operand
+        };
+        self.mem_write(addr, operand);
+        self.set_zn_flags_v1(operand);
+    }
+    fn ror_accumulator(&mut self) {
+        let negative_isolate = self.status & 0b1000_0000;
+        if self.register_a & 0b0000_0001 == 1 {
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        self.register_a = self.register_a >> 1;
+        self.register_a = if negative_isolate != 0 {
+            self.register_a | negative_isolate
+        } else {
+            self.register_a
+        };
+        self.set_zn_flags_v1(self.register_a);
+    }
+    fn ror(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let mut operand = self.mem_read(addr);
+        let negative_isolate = self.status & 0b1000_0000;
+        if operand & 0b0000_0001 == 1 {
+            self.enable_flag(&Flag::Carry);
+        } else {
+            self.disable_flag(&Flag::Carry);
+        }
+        operand = operand >> 1;
+        operand = if negative_isolate != 0 {
+            operand | negative_isolate
+        } else {
+            operand
         };
         self.mem_write(addr, operand);
         self.set_zn_flags_v1(operand);
@@ -957,9 +990,73 @@ impl CPU {
                 /*
                  * * * * * * * * * * LSR OPCODES * * * * * * * * * *
                  */
+                0x4A => {
+                    //LSR-ACC
+                    self.lsr_accumulator();
+                }
+                0x46 => {
+                    //LSR-ZP
+                    self.lsr(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x56 => {
+                    //LSR-ZPX
+                    self.lsr(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x4E => {
+                    //LSR-ABS
+                    self.lsr(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x5E => {
+                    //LSR-ABSX
+                    self.lsr(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
                 /*
                  * * * * * * * * * * ORA OPCODES * * * * * * * * * *
                  */
+                0x09 => {
+                    //ORA-I
+                    self.ora(&AddressingMode::Immediate);
+                    self.program_counter += 1;
+                }
+                0x05 => {
+                    //ORA-ZP
+                    self.ora(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x15 => {
+                    //ORA-ZPX
+                    self.ora(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x0D => {
+                    //ORA-ABS
+                    self.ora(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x1D => {
+                    //ORA-ABSX
+                    self.ora(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
+                0x19 => {
+                    //ORA-ABSY
+                    self.ora(&AddressingMode::Absolute_Y);
+                    self.program_counter += 2;
+                }
+                0x01 => {
+                    //ORA-INDX
+                    self.ora(&AddressingMode::Indirect_X);
+                    self.program_counter += 1;
+                }
+                0x11 => {
+                    //ORA-INDY
+                    self.ora(&AddressingMode::Indirect_Y);
+                    self.program_counter += 1;
+                }
                 /*
                  * * * * * * * * * * PUSH/PULL OPCODES * * * * * * * * * *
                  */
@@ -983,9 +1080,57 @@ impl CPU {
                 /*
                  * * * * * * * * * * ROL OPCODES * * * * * * * * * *
                  */
+                0x2A => {
+                    //ROL-ACC
+                    self.rol_accumulator();
+                }
+                0x26 => {
+                    //ROL-ZP
+                    self.rol(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x36 => {
+                    //ROL-ZPX
+                    self.rol(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x2E => {
+                    //ROL-ABS
+                    self.rol(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x3E => {
+                    //ROL-ABSX
+                    self.rol(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
                 /*
                  * * * * * * * * * * ROR OPCODES * * * * * * * * * *
                  */
+                0x6A => {
+                    //ROR-ACC
+                    self.ror_accumulator();
+                }
+                0x66 => {
+                    //ROR-ZP
+                    self.ror(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x76 => {
+                    //ROR-ZPX
+                    self.ror(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x6E => {
+                    //ROR-ABS
+                    self.ror(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x7E => {
+                    //ROR-ABSX
+                    self.ror(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
                 0xAA => {
                     //TAX
                     self.tax();
