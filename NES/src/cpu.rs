@@ -18,6 +18,7 @@ pub enum Flag {
     IRQ,
     Dec,
     Break,
+    Break2,
     Overflow,
     Negative,
 }
@@ -164,6 +165,7 @@ impl CPU {
             Flag::IRQ => self.status = self.status | 0b0000_0100,
             Flag::Dec => self.status = self.status | 0b0000_1000,
             Flag::Break => self.status = self.status | 0b0001_0000,
+            Flag::Break2 => self.status = self.status | 0b0010_0000,
             Flag::Overflow => self.status = self.status | 0b0100_0000,
             Flag::Negative => self.status = self.status | 0b1000_0000,
         }
@@ -175,6 +177,7 @@ impl CPU {
             Flag::IRQ => self.status = self.status & 0b1111_1011,
             Flag::Dec => self.status = self.status & 0b1111_0111,
             Flag::Break => self.status = self.status & 0b1110_1111,
+            Flag::Break2 => self.status = self.status | 0b0010_0000,
             Flag::Overflow => self.status = self.status & 0b1011_1111,
             Flag::Negative => self.status = self.status & 0b0111_1111,
         }
@@ -186,6 +189,7 @@ impl CPU {
             Flag::IRQ => self.status & 0b0000_0100 != 0,
             Flag::Dec => self.status & 0b0000_1000 != 0,
             Flag::Break => self.status & 0b0001_0000 != 0,
+            Flag::Break2 => self.status & 0b0010_0000 != 0,
             Flag::Overflow => self.status & 0b0100_0000 != 0,
             Flag::Negative => self.status & 0b1000_0000 != 0,
         }
@@ -485,13 +489,23 @@ impl CPU {
         self.mem_write(addr, operand);
         self.set_zn_flags_v1(operand);
     }
-    fn tax(&mut self) {
-        self.register_x = self.register_a;
-        self.set_zn_flags_v1(self.register_x);
+    fn sbc(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let operand = self.mem_read(addr);
+        self.add(operand.wrapping_neg().wrapping_sub(1));
+        self.set_zn_flags_v1(self.register_a);
     }
-    fn tay(&mut self) {
-        self.register_y = self.register_a;
-        self.set_zn_flags_v1(self.register_y);
+    fn sta(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.mem_write(addr, self.register_a);
+    }
+    fn stx(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.mem_write(addr, self.register_x);
+    }
+    fn sty(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        self.mem_write(addr, self.register_y);
     }
     pub fn run(&mut self) {
         loop {
@@ -863,7 +877,7 @@ impl CPU {
                     self.iny();
                 }
                 /*
-                 * * * * * * * * * * JMP OPCODES * * * * * * * * * *
+                 * * * * * * * * * * JMP/RTS OPCODES * * * * * * * * * *
                  */
                 0x4C => {
                     //JMP-ABS
@@ -887,6 +901,11 @@ impl CPU {
                     let addr = self.get_operand_addressing_mode(&AddressingMode::Absolute);
                     self.stack_push_u16(self.program_counter + 1); //+ 2 - 1
                     self.program_counter = addr;
+                }
+                0x60 => {
+                    //RTS
+                    self.program_counter = self.stack_pop_u16();
+                    self.program_counter += 1;
                 }
                 /*
                  * * * * * * * * * * LDA OPCODES * * * * * * * * * *
@@ -1065,8 +1084,10 @@ impl CPU {
                     self.stack_push(self.register_a);
                 }
                 0x08 => {
-                    //PHP
-                    self.stack_push(self.status);
+                    //PHP https://www.nesdev.org/wiki/Status_flags#The_B_flag
+                    let mut flag = self.status;
+                    flag = flag | 0b0011_0000; //enable "B" flag as per wiki
+                    self.stack_push(flag);
                 }
                 0x68 => {
                     //PLA
@@ -1076,6 +1097,7 @@ impl CPU {
                 0x28 => {
                     //PLP
                     self.status = self.stack_pop();
+                    self.disable_flag(&Flag::Break);
                 }
                 /*
                  * * * * * * * * * * ROL OPCODES * * * * * * * * * *
@@ -1131,17 +1153,188 @@ impl CPU {
                     self.ror(&AddressingMode::Absolute_X);
                     self.program_counter += 2;
                 }
+                /*
+                 * * * * * * * * * * RTI/BRK OPCODES * * * * * * * * * *
+                 */
+                0x00 => {
+                    //brk
+                    let mut flag = self.status;
+                    flag = flag | 0b0011_0000; //enable "B" flag as per wiki
+                    self.stack_push_u16(self.program_counter);
+                    self.stack_push(flag);
+                    self.program_counter = self.mem_read_u16(0xFFFE);
+                    self.enable_flag(&Flag::Break);
+                    return;
+                }
+                0x40 => {
+                    //RTI
+                    self.status = self.stack_pop();
+                    self.disable_flag(&Flag::Break);
+                    self.program_counter = self.stack_pop_u16();
+                }
+                /*
+                 * * * * * * * * * * SBC OPCODES * * * * * * * * * *
+                 */
+                0xE9 => {
+                    //SBC-I
+                    self.sbc(&AddressingMode::Immediate);
+                    self.program_counter += 1;
+                }
+                0xE5 => {
+                    //SBC-ZP
+                    self.sbc(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xF5 => {
+                    //SBC-ZPX
+                    self.sbc(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0xED => {
+                    //SBC-ABS
+                    self.sbc(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0xFD => {
+                    //SBC-ABSX
+                    self.sbc(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
+                0xF9 => {
+                    //SBC-ABSY
+                    self.sbc(&AddressingMode::Absolute_Y);
+                    self.program_counter += 2;
+                }
+                0xE1 => {
+                    //SBC-INDX
+                    self.sbc(&AddressingMode::Indirect_X);
+                    self.program_counter += 1;
+                }
+                0xF1 => {
+                    //SBC-INDY
+                    self.sbc(&AddressingMode::Indirect_Y);
+                    self.program_counter += 1;
+                }
+                /*
+                 * * * * * * * * * * SET OPCODES * * * * * * * * * *
+                 */
+                0x38 => {
+                    //SEC
+                    self.enable_flag(&Flag::Carry);
+                }
+                0xF8 => {
+                    //SED
+                    self.enable_flag(&Flag::Dec);
+                }
+                0x78 => {
+                    //SEI
+                    self.enable_flag(&Flag::IRQ);
+                }
+                /*
+                 * * * * * * * * * * STA OPCODES * * * * * * * * * *
+                 */
+                0x85 => {
+                    //STA-ZP
+                    self.sta(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x95 => {
+                    //STA-ZPX
+                    self.sta(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x8D => {
+                    //STA-ABS
+                    self.sta(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x9D => {
+                    //STA-ABSX
+                    self.sta(&AddressingMode::Absolute_X);
+                    self.program_counter += 2;
+                }
+                0x99 => {
+                    //STA-ABSY
+                    self.sta(&AddressingMode::Absolute_Y);
+                    self.program_counter += 2;
+                }
+                0x81 => {
+                    //STA-INDX
+                    self.sta(&AddressingMode::Indirect_X);
+                    self.program_counter += 1;
+                }
+                0x91 => {
+                    //STA-INDY
+                    self.sta(&AddressingMode::Indirect_Y);
+                    self.program_counter += 1;
+                }
+                /*
+                 * * * * * * * * * * STX OPCODES * * * * * * * * * *
+                 */
+                0x86 => {
+                    //STX-ZP
+                    self.stx(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x96 => {
+                    //STX-ZPY
+                    self.stx(&AddressingMode::ZeroPage_Y);
+                    self.program_counter += 1;
+                }
+                0x8E => {
+                    //STX-ABS
+                    self.stx(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                /*
+                 * * * * * * * * * * STY OPCODES * * * * * * * * * *
+                 */
+                0x84 => {
+                    //STY-ZP
+                    self.sty(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x94 => {
+                    //STY-ZPX
+                    self.sty(&AddressingMode::ZeroPage_X);
+                    self.program_counter += 1;
+                }
+                0x8C => {
+                    //STY-ABS
+                    self.sty(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                /*
+                 * * * * * * * * * * Transfer OPCODES * * * * * * * * * *
+                 */
                 0xAA => {
                     //TAX
-                    self.tax();
+                    self.register_x = self.register_a;
+                    self.set_zn_flags_v1(self.register_x);
                 }
                 0xA8 => {
                     //TAY
-                    self.tay();
+                    self.register_y = self.register_a;
+                    self.set_zn_flags_v1(self.register_y);
                 }
-                0x00 => {
-                    //brk
-                    return;
+                0xBA => {
+                    //TSX
+                    self.register_x = self.stack_ptr;
+                    self.set_zn_flags_v1(self.register_x);
+                }
+                0x8A => {
+                    //TXA
+                    self.register_a = self.register_x;
+                    self.set_zn_flags_v1(self.register_a);
+                }
+                0x9A => {
+                    //TXS
+                    self.stack_ptr = self.register_x;
+                }
+                0x98 => {
+                    //TYA
+                    self.register_a = self.register_y;
+                    self.set_zn_flags_v1(self.register_a);
                 }
                 0xEA => {
                     //nop
