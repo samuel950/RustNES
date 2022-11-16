@@ -68,10 +68,10 @@ impl CPU {
         //self.mem_write(pos + 1, hi);
         self.mem_write(pos.wrapping_add(1), hi);
     }
-    fn mem_read(&self, addr: u16) -> u8 {
+    pub fn mem_read(&self, addr: u16) -> u8 {
         self.memory[addr as usize]
     }
-    fn mem_write(&mut self, addr: u16, data: u8) {
+    pub fn mem_write(&mut self, addr: u16, data: u8) {
         self.memory[addr as usize] = data;
     }
     fn stack_pop_u16(&mut self) -> u16 {
@@ -98,11 +98,12 @@ impl CPU {
         self.register_x = 0;
         self.register_y = 0;
         self.status = 0b0010_0000;
+        self.stack_ptr = STACK_RESET;
         self.program_counter = self.mem_read_u16(0xFFFC);
     }
     pub fn load(&mut self, program: Vec<u8>) {
-        self.memory[0x8000..(0x8000 + program.len())].copy_from_slice(&program[..]);
-        self.mem_write_u16(0xFFFC, 0x8000);
+        self.memory[0x0600..(0x0600 + program.len())].copy_from_slice(&program[..]);
+        self.mem_write_u16(0xFFFC, 0x0600);
     }
     pub fn load_and_run(&mut self, program: Vec<u8>) {
         self.load(program);
@@ -177,7 +178,7 @@ impl CPU {
             Flag::IRQ => self.status = self.status & 0b1111_1011,
             Flag::Dec => self.status = self.status & 0b1111_0111,
             Flag::Break => self.status = self.status & 0b1110_1111,
-            Flag::Break2 => self.status = self.status | 0b0010_0000,
+            Flag::Break2 => self.status = self.status & 0b1101_1111,
             Flag::Overflow => self.status = self.status & 0b1011_1111,
             Flag::Negative => self.status = self.status & 0b0111_1111,
         }
@@ -303,6 +304,8 @@ impl CPU {
                 .program_counter
                 .wrapping_add(1)
                 .wrapping_add(displacement as u16);
+        } else {
+            self.program_counter += 1;
         }
     }
     fn branch_clear(&mut self, flag: &Flag) {
@@ -312,6 +315,8 @@ impl CPU {
                 .program_counter
                 .wrapping_add(1)
                 .wrapping_add(displacement as u16);
+        } else {
+            self.program_counter += 1;
         }
     }
     fn cmp(&mut self, mode: &AddressingMode) {
@@ -508,9 +513,17 @@ impl CPU {
         self.mem_write(addr, self.register_y);
     }
     pub fn run(&mut self) {
+        self.run_with_callback(|_| {});
+    }
+    pub fn run_with_callback<F>(&mut self, mut callback: F)
+    where
+        F: FnMut(&mut CPU),
+    {
         loop {
+            callback(self);
             let opscode = self.mem_read(self.program_counter);
             self.program_counter += 1;
+            //println!("{:#04x}", opscode);
             match opscode {
                 /*
                  * * * * * * * * * * ADC OPCODES * * * * * * * * * *
@@ -1158,12 +1171,12 @@ impl CPU {
                  */
                 0x00 => {
                     //brk
-                    let mut flag = self.status;
+                    /*let mut flag = self.status;
                     flag = flag | 0b0011_0000; //enable "B" flag as per wiki
                     self.stack_push_u16(self.program_counter);
                     self.stack_push(flag);
                     self.program_counter = self.mem_read_u16(0xFFFE);
-                    self.enable_flag(&Flag::Break);
+                    self.enable_flag(&Flag::Break);*/
                     return;
                 }
                 0x40 => {
@@ -1340,8 +1353,9 @@ impl CPU {
                     //nop
                     continue;
                 }
-                _ => todo!(),
+                _ => panic!(),
             }
+            //::std::thread::sleep(std::time::Duration::from_nanos(1));
         }
     }
 }
