@@ -1,5 +1,7 @@
-#[derive(Debug)]
+use crate::bus::Bus;
+use crate::bus::Memory;
 #[allow(non_camel_case_types)]
+#[derive(Debug)]
 pub enum AddressingMode {
     Immediate,
     ZeroPage,
@@ -29,7 +31,7 @@ pub struct CPU {
     pub status: u8,
     pub stack_ptr: u8,
     pub program_counter: u16,
-    memory: [u8; 0xFFFF],
+    pub bus: Bus,
 }
 const STACK_OFFSET: u16 = 0x100;
 const STACK_RESET: u8 = 0xfd;
@@ -42,8 +44,22 @@ address - points to a 1 byte cell (8bits) ie think how that relates to getting 1
 program counter - the current memory address. 2 bytes increment once, 3 bytes increment twice etc.
 -In 2's complement, to make positive number negative, invert bits and add 1.
  */
+impl Memory for CPU {
+    fn mem_read(&self, addr: u16) -> u8 {
+        self.bus.mem_read(addr)
+    }
+    fn mem_write(&mut self, addr: u16, data: u8) {
+        self.bus.mem_write(addr, data);
+    }
+    fn mem_read_u16(&self, pos: u16) -> u16 {
+        self.bus.mem_read_u16(pos)
+    }
+    fn mem_write_u16(&mut self, pos: u16, data: u16) {
+        self.bus.mem_write_u16(pos, data);
+    }
+}
 impl CPU {
-    pub fn new() -> Self {
+    pub fn new(bus: Bus) -> Self {
         CPU {
             register_a: 0,
             register_x: 0,
@@ -51,11 +67,11 @@ impl CPU {
             status: 0b0010_0000,
             stack_ptr: STACK_RESET, //starts at 1fd per hardware specification
             program_counter: 0,
-            memory: [0; 0xFFFF],
+            bus: bus,
         }
     }
 
-    fn mem_read_u16(&self, pos: u16) -> u16 {
+    /*fn mem_read_u16(&self, pos: u16) -> u16 {
         let lo = self.mem_read(pos) as u16;
         //let hi = self.mem_read(pos + 1) as u16; //visit the next cell to grab the last 8 bits of data.
         let hi = self.mem_read(pos.wrapping_add(1)) as u16;
@@ -73,7 +89,7 @@ impl CPU {
     }
     pub fn mem_write(&mut self, addr: u16, data: u8) {
         self.memory[addr as usize] = data;
-    }
+    }*/
     fn stack_pop_u16(&mut self) -> u16 {
         let lo = self.stack_pop() as u16;
         let hi = self.stack_pop() as u16;
@@ -102,8 +118,11 @@ impl CPU {
         self.program_counter = self.mem_read_u16(0xFFFC);
     }
     pub fn load(&mut self, program: Vec<u8>) {
-        self.memory[0x0600..(0x0600 + program.len())].copy_from_slice(&program[..]);
-        self.mem_write_u16(0xFFFC, 0x0600);
+        //self.bus.memory[0x0600..(0x0600 + program.len())].copy_from_slice(&program[..]);
+        for i in 0..(program.len() as u16) {
+            self.mem_write(0x8600 + i, program[i as usize]);
+        }
+        self.mem_write_u16(0xFFFC, 0x8600);
     }
     pub fn load_and_run(&mut self, program: Vec<u8>) {
         self.load(program);
@@ -1355,7 +1374,6 @@ impl CPU {
                 }
                 _ => panic!(),
             }
-            //::std::thread::sleep(std::time::Duration::from_nanos(1));
         }
     }
 }

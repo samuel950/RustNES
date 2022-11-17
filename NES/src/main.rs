@@ -1,6 +1,11 @@
+pub mod bus;
 pub mod cpu;
+pub mod rom;
+use bus::Bus;
+use bus::Memory;
 use cpu::CPU;
 use rand::Rng;
+use rom::Rom;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
@@ -72,9 +77,26 @@ fn read_screen_state(cpu: &CPU, frame: &mut [u8; 32 * 3 * 32]) -> bool {
     }
     update
 }
+fn trace(cpu: &CPU) -> String {
+    let program_counter = cpu.program_counter;
+    let register_a = cpu.register_a;
+    let register_x = cpu.register_x;
+    let register_y = cpu.register_y;
+    let p = cpu.status;
+    let sp = cpu.stack_ptr;
+    let opcode = cpu.mem_read(program_counter);
+    let registers = format!(
+        "A:{:x} X:{:x} Y:{:x} P:{:x} SP:{:x}",
+        register_a, register_x, register_y, p, sp
+    );
+    format!(
+        "{:x}  {} {}     {}  {}",
+        program_counter, opcode, 1, 1, registers
+    )
+}
 fn main() {
     env::set_var("RUST_BACKTRACE", "full");
-    let game_code = vec![
+    let _game_code = vec![
         0x20, 0x06, 0x06, 0x20, 0x38, 0x06, 0x20, 0x0d, 0x06, 0x20, 0x2a, 0x06, 0x60, 0xa9, 0x02,
         0x85, 0x02, 0xa9, 0x04, 0x85, 0x03, 0xa9, 0x11, 0x85, 0x10, 0xa9, 0x10, 0x85, 0x12, 0xa9,
         0x0f, 0x85, 0x14, 0xa9, 0x04, 0x85, 0x11, 0x85, 0x13, 0x85, 0x15, 0x60, 0xa5, 0xfe, 0x85,
@@ -114,21 +136,23 @@ fn main() {
         .create_texture_target(PixelFormatEnum::RGB24, 32, 32)
         .unwrap();
     //load program
-    let mut cpu = CPU::new();
-    cpu.load(game_code);
+    let bytes: Vec<u8> = std::fs::read("src/snake.nes").unwrap();
+    let rom = Rom::new(&bytes).unwrap();
+    let bus = Bus::new(rom);
+    let mut cpu = CPU::new(bus);
     cpu.reset();
     //run program
     let mut screen_state = [0 as u8; 32 * 3 * 32];
     let mut rng = rand::thread_rng();
     cpu.run_with_callback(move |cpu| {
+        println!("{}", trace(cpu));
         input_handler(cpu, &mut event_pump);
         cpu.mem_write(0xfe, rng.gen_range(1..16));
         if read_screen_state(cpu, &mut screen_state) {
             texture.update(None, &screen_state, 32 * 3).unwrap();
             canvas.copy(&texture, None, None).unwrap();
             canvas.present();
-            ::std::thread::sleep(std::time::Duration::from_nanos(12000000));
+            ::std::thread::sleep(std::time::Duration::from_nanos(10000000));
         }
-        //::std::thread::sleep(std::time::Duration::from_nanos(1));
     });
 }
