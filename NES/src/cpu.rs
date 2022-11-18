@@ -64,7 +64,7 @@ impl CPU {
             register_a: 0,
             register_x: 0,
             register_y: 0,
-            status: 0b0010_0000,
+            status: 0b0010_0100,
             stack_ptr: STACK_RESET, //starts at 1fd per hardware specification
             program_counter: 0,
             bus: bus,
@@ -113,16 +113,16 @@ impl CPU {
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
-        self.status = 0b0010_0000;
+        self.status = 0b0010_0100;
         self.stack_ptr = STACK_RESET;
         self.program_counter = self.mem_read_u16(0xFFFC);
     }
     pub fn load(&mut self, program: Vec<u8>) {
         //self.bus.memory[0x0600..(0x0600 + program.len())].copy_from_slice(&program[..]);
         for i in 0..(program.len() as u16) {
-            self.mem_write(0x8600 + i, program[i as usize]);
+            self.mem_write(0x0600 + i, program[i as usize]);
         }
-        self.mem_write_u16(0xFFFC, 0x8600);
+        //self.mem_write_u16(0xFFFC, 0x8600);
     }
     pub fn load_and_run(&mut self, program: Vec<u8>) {
         self.load(program);
@@ -156,18 +156,61 @@ impl CPU {
             AddressingMode::Indirect_X => {
                 let indr_addr: u8 = self.mem_read(self.program_counter);
                 let ptr: u8 = indr_addr.wrapping_add(self.register_x);
-                /*let lo = self.mem_read(ptr as u16) as u16;
+                let lo = self.mem_read(ptr as u16) as u16;
                 let hi = self.mem_read(ptr.wrapping_add(1) as u16) as u16;
-                (hi << 8) | lo //dont need to 0 out first 8 bits because lo is originally 8 bits anyways.*/
-                self.mem_read_u16(ptr as u16)
+                (hi << 8) | lo //dont need to 0 out first 8 bits because lo is originally 8 bits anyways.
+                               //self.mem_read_u16(ptr as u16)
             }
             AddressingMode::Indirect_Y => {
                 let indr_addr: u8 = self.mem_read(self.program_counter); //starting point of a 16bit address.
 
-                /*let lo = self.mem_read(indr_addr as u16) as u16;
+                let lo = self.mem_read(indr_addr as u16) as u16;
                 let hi = self.mem_read(indr_addr.wrapping_add(1) as u16) as u16;
-                let ptr: u16 = (hi << 8) | lo;*/
-                let ptr = self.mem_read_u16(indr_addr as u16);
+                let ptr: u16 = (hi << 8) | lo;
+                //let ptr = self.mem_read_u16(indr_addr as u16);
+                ptr.wrapping_add(self.register_y as u16)
+            }
+            AddressingMode::NotSupported => {
+                panic!("Addressing mode {:?} is not supported!", mode);
+            }
+        }
+    }
+    pub fn get_operand_addressing_mode_trace(&self, mode: &AddressingMode, pc: u16) -> u16 {
+        match mode {
+            AddressingMode::Immediate => self.program_counter,
+            AddressingMode::ZeroPage => self.mem_read(pc) as u16,
+            AddressingMode::ZeroPage_X => {
+                let zp_addr = self.mem_read(pc);
+                zp_addr.wrapping_add(self.register_x) as u16
+            }
+            AddressingMode::ZeroPage_Y => {
+                let zp_addr = self.mem_read(pc);
+                zp_addr.wrapping_add(self.register_y) as u16
+            }
+            AddressingMode::Absolute => self.mem_read_u16(pc),
+            AddressingMode::Absolute_X => {
+                let abs_addr: u16 = self.mem_read_u16(pc);
+                abs_addr.wrapping_add(self.register_x as u16)
+            }
+            AddressingMode::Absolute_Y => {
+                let abs_addr: u16 = self.mem_read_u16(pc);
+                abs_addr.wrapping_add(self.register_y as u16)
+            }
+            AddressingMode::Indirect_X => {
+                let indr_addr: u8 = self.mem_read(pc);
+                let ptr: u8 = indr_addr.wrapping_add(self.register_x);
+                let lo = self.mem_read(ptr as u16) as u16;
+                let hi = self.mem_read(ptr.wrapping_add(1) as u16) as u16;
+                (hi << 8) | lo //dont need to 0 out first 8 bits because lo is originally 8 bits anyways.
+                               //self.mem_read_u16(ptr as u16)
+            }
+            AddressingMode::Indirect_Y => {
+                let indr_addr: u8 = self.mem_read(pc); //starting point of a 16bit address.
+
+                let lo = self.mem_read(indr_addr as u16) as u16;
+                let hi = self.mem_read(indr_addr.wrapping_add(1) as u16) as u16;
+                let ptr: u16 = (hi << 8) | lo;
+                //let ptr = self.mem_read_u16(indr_addr as u16);
                 ptr.wrapping_add(self.register_y as u16)
             }
             AddressingMode::NotSupported => {
@@ -299,18 +342,19 @@ impl CPU {
     }
     fn bit(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_addressing_mode(mode);
-        let operand = self.register_a & self.mem_read(addr);
+        let data = self.mem_read(addr);
+        let operand = self.register_a & data;
         if operand == 0 {
             self.enable_flag(&Flag::Zero);
         } else {
             self.disable_flag(&Flag::Zero);
         }
-        if operand & 0b1000_0000 != 0 {
+        if data & 0b1000_0000 != 0 {
             self.enable_flag(&Flag::Negative);
         } else {
             self.disable_flag(&Flag::Negative);
         }
-        if operand & 0b0100_0000 != 0 {
+        if data & 0b0100_0000 != 0 {
             self.enable_flag(&Flag::Overflow);
         } else {
             self.disable_flag(&Flag::Overflow);
@@ -481,15 +525,15 @@ impl CPU {
         self.set_zn_flags_v1(operand);
     }
     fn ror_accumulator(&mut self) {
-        let negative_isolate = self.status & 0b1000_0000;
+        let carry_isolate = self.status & 0b0000_0001;
         if self.register_a & 0b0000_0001 == 1 {
             self.enable_flag(&Flag::Carry);
         } else {
             self.disable_flag(&Flag::Carry);
         }
         self.register_a = self.register_a >> 1;
-        self.register_a = if negative_isolate != 0 {
-            self.register_a | negative_isolate
+        self.register_a = if carry_isolate != 0 {
+            self.register_a | 0b1000_0000
         } else {
             self.register_a
         };
@@ -498,15 +542,15 @@ impl CPU {
     fn ror(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_addressing_mode(mode);
         let mut operand = self.mem_read(addr);
-        let negative_isolate = self.status & 0b1000_0000;
+        let carry_isolate = self.status & 0b0000_0001;
         if operand & 0b0000_0001 == 1 {
             self.enable_flag(&Flag::Carry);
         } else {
             self.disable_flag(&Flag::Carry);
         }
         operand = operand >> 1;
-        operand = if negative_isolate != 0 {
-            operand | negative_isolate
+        operand = if carry_isolate != 0 {
+            operand | 0b1000_0000
         } else {
             operand
         };
@@ -1130,6 +1174,7 @@ impl CPU {
                     //PLP
                     self.status = self.stack_pop();
                     self.disable_flag(&Flag::Break);
+                    self.enable_flag(&Flag::Break2)
                 }
                 /*
                  * * * * * * * * * * ROL OPCODES * * * * * * * * * *
@@ -1202,6 +1247,7 @@ impl CPU {
                     //RTI
                     self.status = self.stack_pop();
                     self.disable_flag(&Flag::Break);
+                    self.enable_flag(&Flag::Break2);
                     self.program_counter = self.stack_pop_u16();
                 }
                 /*
