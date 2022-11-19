@@ -1,5 +1,7 @@
 use crate::bus::Bus;
 use crate::bus::Memory;
+use crate::opcodes;
+use std::collections::HashMap;
 #[allow(non_camel_case_types)]
 #[derive(Debug)]
 pub enum AddressingMode {
@@ -367,8 +369,6 @@ impl CPU {
                 .program_counter
                 .wrapping_add(1)
                 .wrapping_add(displacement as u16);
-        } else {
-            self.program_counter += 1;
         }
     }
     fn branch_clear(&mut self, flag: &Flag) {
@@ -378,8 +378,6 @@ impl CPU {
                 .program_counter
                 .wrapping_add(1)
                 .wrapping_add(displacement as u16);
-        } else {
-            self.program_counter += 1;
         }
     }
     fn cmp(&mut self, mode: &AddressingMode) {
@@ -575,6 +573,15 @@ impl CPU {
         let addr = self.get_operand_addressing_mode(mode);
         self.mem_write(addr, self.register_y);
     }
+    /*
+     * * * * * * * * * * Unoffical instruction functions start here * * * * * * * * * *
+     */
+    fn sax(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_addressing_mode(mode);
+        let result = self.register_x & self.register_a;
+        self.set_zn_flags_v1(result);
+        self.mem_write(addr as u16, result)
+    }
     pub fn run(&mut self) {
         self.run_with_callback(|_| {});
     }
@@ -582,10 +589,13 @@ impl CPU {
     where
         F: FnMut(&mut CPU),
     {
+        let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
         loop {
             callback(self);
             let opscode = self.mem_read(self.program_counter);
+            let opscode_data = opcodes.get(&opscode).unwrap();
             self.program_counter += 1;
+            let pccopy = self.program_counter;
             //println!("{:#04x}", opscode);
             match opscode {
                 /*
@@ -594,42 +604,34 @@ impl CPU {
                 0x69 => {
                     //ADC-I
                     self.adc(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0x65 => {
                     //ADC-ZP
                     self.adc(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x75 => {
                     //ADC-ZPX
                     self.adc(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x6D => {
                     //ADC-ABS
                     self.adc(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0x7D => {
                     //ADC-ABSX
                     self.adc(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0x79 => {
                     //ADC-ABSY
                     self.adc(&AddressingMode::Absolute_Y);
-                    self.program_counter += 2;
                 }
                 0x61 => {
                     //ADC-INDX
                     self.adc(&AddressingMode::Indirect_X);
-                    self.program_counter += 1;
                 }
                 0x71 => {
                     //ADC-INDY
                     self.adc(&AddressingMode::Indirect_Y);
-                    self.program_counter += 1;
                 }
                 /*
                  * * * * * * * * * * AND OPCODES * * * * * * * * * *
@@ -637,42 +639,34 @@ impl CPU {
                 0x29 => {
                     //AND-I
                     self.and(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0x25 => {
                     //AND-ZP
                     self.and(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x35 => {
                     //AND-ZPX
                     self.and(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x2D => {
                     //AND-ABS
                     self.and(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0x3D => {
                     //AND-ABSX
                     self.and(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0x39 => {
                     //AND-ABSY
                     self.and(&AddressingMode::Absolute_Y);
-                    self.program_counter += 2;
                 }
                 0x21 => {
                     //AND-INDX
                     self.and(&AddressingMode::Indirect_X);
-                    self.program_counter += 1;
                 }
                 0x31 => {
                     //AND-INDY
                     self.and(&AddressingMode::Indirect_Y);
-                    self.program_counter += 1;
                 }
                 /*
                  * * * * * * * * * * ASL OPCODES * * * * * * * * * *
@@ -684,22 +678,18 @@ impl CPU {
                 0x06 => {
                     //ASL-ZP
                     self.asl(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x16 => {
                     //ASL-ZPX
                     self.asl(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x0E => {
                     //ASL-ABS
                     self.asl(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0x1E => {
                     //ASL-ABSX
                     self.asl(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * Bit Test OPCODES * * * * * * * * * *
@@ -707,12 +697,10 @@ impl CPU {
                 0x24 => {
                     //BIT-ZP
                     self.bit(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x2C => {
                     //BIT-ABS
                     self.bit(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * Branch OPCODES * * * * * * * * * *
@@ -774,42 +762,34 @@ impl CPU {
                 0xC9 => {
                     //CMP-I
                     self.cmp(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0xC5 => {
                     //CMP-ZP
                     self.cmp(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0xD5 => {
                     //CMP-ZPX
                     self.cmp(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0xCD => {
                     //CMP-ABS
                     self.cmp(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0xDD => {
                     //CMP-ABSX
                     self.cmp(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0xD9 => {
                     //CMP-ABSY
                     self.cmp(&AddressingMode::Absolute_Y);
-                    self.program_counter += 2;
                 }
                 0xC1 => {
                     //CMP-INDX
                     self.cmp(&AddressingMode::Indirect_X);
-                    self.program_counter += 1;
                 }
                 0xD1 => {
                     //CMP-INDY
                     self.cmp(&AddressingMode::Indirect_Y);
-                    self.program_counter += 1;
                 }
                 /*
                  * * * * * * * * * * CPX OPCODES * * * * * * * * * *
@@ -817,17 +797,14 @@ impl CPU {
                 0xE0 => {
                     //CPX-I
                     self.cpx(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0xE4 => {
                     //CPX-ZP
                     self.cpx(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0xEC => {
                     //CPX-ABS
                     self.cpx(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * CPY OPCODES * * * * * * * * * *
@@ -835,17 +812,14 @@ impl CPU {
                 0xC0 => {
                     //CPY-I
                     self.cpy(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0xC4 => {
                     //CPY-ZP
                     self.cpy(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0xCC => {
                     //CPY-ABS
                     self.cpy(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * DEC/DEX/DEY OPCODES * * * * * * * * * *
@@ -853,22 +827,18 @@ impl CPU {
                 0xC6 => {
                     //DEC-ZP
                     self.dec(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0xD6 => {
                     //DEC-ZPX
                     self.dec(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0xCE => {
                     //DEC-ABS
                     self.dec(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0xDE => {
                     //DEC-ABSX
                     self.dec(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0xCA => {
                     //DEX
@@ -884,42 +854,34 @@ impl CPU {
                 0x49 => {
                     //EOR-I
                     self.eor(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0x45 => {
                     //EOR-ZP
                     self.eor(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x55 => {
                     //EOR-ZPX
                     self.eor(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x4D => {
                     //EOR-ABS
                     self.eor(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0x5D => {
                     //EOR-ABSX
                     self.eor(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0x59 => {
                     //EOR-ABSY
                     self.eor(&AddressingMode::Absolute_Y);
-                    self.program_counter += 2;
                 }
                 0x41 => {
                     //EOR-INDX
                     self.eor(&AddressingMode::Indirect_X);
-                    self.program_counter += 1;
                 }
                 0x51 => {
                     //EOR-INDY
                     self.eor(&AddressingMode::Indirect_Y);
-                    self.program_counter += 1;
                 }
                 /*
                  * * * * * * * * * * INC OPCODES * * * * * * * * * *
@@ -927,22 +889,18 @@ impl CPU {
                 0xE6 => {
                     //INC-ZP
                     self.inc(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0xF6 => {
                     //INC-ZPX
                     self.inc(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0xEE => {
                     //INC-ABS
                     self.inc(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0xFE => {
                     //INC-ABSX
                     self.inc(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0xE8 => {
                     //INX
@@ -980,8 +938,7 @@ impl CPU {
                 }
                 0x60 => {
                     //RTS
-                    self.program_counter = self.stack_pop_u16();
-                    self.program_counter += 1;
+                    self.program_counter = self.stack_pop_u16() + 1;
                 }
                 /*
                  * * * * * * * * * * LDA OPCODES * * * * * * * * * *
@@ -989,42 +946,34 @@ impl CPU {
                 0xA9 => {
                     //LDA-I
                     self.lda(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0xA5 => {
                     //LDA-ZP
                     self.lda(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0xB5 => {
                     //LDA-ZPX
                     self.lda(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0xAD => {
                     //LDA-ABS
                     self.lda(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0xBD => {
                     //LDA-ABSX
                     self.lda(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0xB9 => {
                     //LDA-ABSY
                     self.lda(&AddressingMode::Absolute_Y);
-                    self.program_counter += 2;
                 }
                 0xA1 => {
                     //LDA-INDX
                     self.lda(&AddressingMode::Indirect_X);
-                    self.program_counter += 1;
                 }
                 0xB1 => {
                     //LDA-INDY
                     self.lda(&AddressingMode::Indirect_Y);
-                    self.program_counter += 1;
                 }
                 /*
                  * * * * * * * * * * LDX OPCODES * * * * * * * * * *
@@ -1032,27 +981,22 @@ impl CPU {
                 0xA2 => {
                     //LDX-I
                     self.ldx(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0xA6 => {
                     //LDX-ZP
                     self.ldx(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0xB6 => {
                     //LDX-ZPY
                     self.ldx(&AddressingMode::ZeroPage_Y);
-                    self.program_counter += 1;
                 }
                 0xAE => {
                     //LDX-ABS
                     self.ldx(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0xBE => {
                     //LDX-ABSY
                     self.ldx(&AddressingMode::Absolute_Y);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * LDY OPCODES * * * * * * * * * *
@@ -1060,27 +1004,22 @@ impl CPU {
                 0xA0 => {
                     //LDY-I
                     self.ldy(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0xA4 => {
                     //LDY-ZP
                     self.ldy(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0xB4 => {
                     //LDY-ZPX
                     self.ldy(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0xAC => {
                     //LDY-ABS
                     self.ldy(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0xBC => {
                     //LDY-ABSX
                     self.ldy(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * LSR OPCODES * * * * * * * * * *
@@ -1092,22 +1031,18 @@ impl CPU {
                 0x46 => {
                     //LSR-ZP
                     self.lsr(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x56 => {
                     //LSR-ZPX
                     self.lsr(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x4E => {
                     //LSR-ABS
                     self.lsr(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0x5E => {
                     //LSR-ABSX
                     self.lsr(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * ORA OPCODES * * * * * * * * * *
@@ -1115,42 +1050,34 @@ impl CPU {
                 0x09 => {
                     //ORA-I
                     self.ora(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0x05 => {
                     //ORA-ZP
                     self.ora(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x15 => {
                     //ORA-ZPX
                     self.ora(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x0D => {
                     //ORA-ABS
                     self.ora(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0x1D => {
                     //ORA-ABSX
                     self.ora(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0x19 => {
                     //ORA-ABSY
                     self.ora(&AddressingMode::Absolute_Y);
-                    self.program_counter += 2;
                 }
                 0x01 => {
                     //ORA-INDX
                     self.ora(&AddressingMode::Indirect_X);
-                    self.program_counter += 1;
                 }
                 0x11 => {
                     //ORA-INDY
                     self.ora(&AddressingMode::Indirect_Y);
-                    self.program_counter += 1;
                 }
                 /*
                  * * * * * * * * * * PUSH/PULL OPCODES * * * * * * * * * *
@@ -1186,22 +1113,18 @@ impl CPU {
                 0x26 => {
                     //ROL-ZP
                     self.rol(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x36 => {
                     //ROL-ZPX
                     self.rol(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x2E => {
                     //ROL-ABS
                     self.rol(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0x3E => {
                     //ROL-ABSX
                     self.rol(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * ROR OPCODES * * * * * * * * * *
@@ -1213,22 +1136,18 @@ impl CPU {
                 0x66 => {
                     //ROR-ZP
                     self.ror(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x76 => {
                     //ROR-ZPX
                     self.ror(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x6E => {
                     //ROR-ABS
                     self.ror(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0x7E => {
                     //ROR-ABSX
                     self.ror(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * RTI/BRK OPCODES * * * * * * * * * *
@@ -1256,42 +1175,34 @@ impl CPU {
                 0xE9 => {
                     //SBC-I
                     self.sbc(&AddressingMode::Immediate);
-                    self.program_counter += 1;
                 }
                 0xE5 => {
                     //SBC-ZP
                     self.sbc(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0xF5 => {
                     //SBC-ZPX
                     self.sbc(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0xED => {
                     //SBC-ABS
                     self.sbc(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0xFD => {
                     //SBC-ABSX
                     self.sbc(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0xF9 => {
                     //SBC-ABSY
                     self.sbc(&AddressingMode::Absolute_Y);
-                    self.program_counter += 2;
                 }
                 0xE1 => {
                     //SBC-INDX
                     self.sbc(&AddressingMode::Indirect_X);
-                    self.program_counter += 1;
                 }
                 0xF1 => {
                     //SBC-INDY
                     self.sbc(&AddressingMode::Indirect_Y);
-                    self.program_counter += 1;
                 }
                 /*
                  * * * * * * * * * * SET OPCODES * * * * * * * * * *
@@ -1314,37 +1225,30 @@ impl CPU {
                 0x85 => {
                     //STA-ZP
                     self.sta(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x95 => {
                     //STA-ZPX
                     self.sta(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x8D => {
                     //STA-ABS
                     self.sta(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 0x9D => {
                     //STA-ABSX
                     self.sta(&AddressingMode::Absolute_X);
-                    self.program_counter += 2;
                 }
                 0x99 => {
                     //STA-ABSY
                     self.sta(&AddressingMode::Absolute_Y);
-                    self.program_counter += 2;
                 }
                 0x81 => {
                     //STA-INDX
                     self.sta(&AddressingMode::Indirect_X);
-                    self.program_counter += 1;
                 }
                 0x91 => {
                     //STA-INDY
                     self.sta(&AddressingMode::Indirect_Y);
-                    self.program_counter += 1;
                 }
                 /*
                  * * * * * * * * * * STX OPCODES * * * * * * * * * *
@@ -1352,17 +1256,14 @@ impl CPU {
                 0x86 => {
                     //STX-ZP
                     self.stx(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x96 => {
                     //STX-ZPY
                     self.stx(&AddressingMode::ZeroPage_Y);
-                    self.program_counter += 1;
                 }
                 0x8E => {
                     //STX-ABS
                     self.stx(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * STY OPCODES * * * * * * * * * *
@@ -1370,25 +1271,21 @@ impl CPU {
                 0x84 => {
                     //STY-ZP
                     self.sty(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
                 }
                 0x94 => {
                     //STY-ZPX
                     self.sty(&AddressingMode::ZeroPage_X);
-                    self.program_counter += 1;
                 }
                 0x8C => {
                     //STY-ABS
                     self.sty(&AddressingMode::Absolute);
-                    self.program_counter += 2;
                 }
                 /*
                  * * * * * * * * * * Transfer OPCODES * * * * * * * * * *
                  */
                 0xAA => {
                     //TAX
-                    self.register_x = self.register_a;
-                    self.set_zn_flags_v1(self.register_x);
+                    self.tax();
                 }
                 0xA8 => {
                     //TAY
@@ -1418,8 +1315,64 @@ impl CPU {
                     //nop
                     continue;
                 }
+                /*
+                 * * * * * * * * * * Unofficial OPCODES * * * * * * * * * *
+                 */
+                0x0B | 0x2B => {
+                    //ANC
+                    let result = self.register_a & self.mem_read(self.program_counter);
+                    if self.is_negative(result) {
+                        self.enable_flag(&Flag::Carry);
+                    } else {
+                        self.disable_flag(&Flag::Carry);
+                    }
+                    self.register_a = result;
+                    self.set_zn_flags_v1(self.register_a);
+                }
+                0x6B => {
+                    //ARR
+                    self.register_a = self.register_a & self.mem_read(self.program_counter);
+                    self.ror_accumulator();
+                    let b5 = self.register_a & 0b0010_0000 != 0;
+                    let b6 = self.register_a & 0b0100_0000 != 0;
+                    if b6 {
+                        self.enable_flag(&Flag::Carry);
+                    } else {
+                        self.disable_flag(&Flag::Carry);
+                    }
+                    if b6 ^ b5 {
+                        self.enable_flag(&Flag::Overflow);
+                    } else {
+                        self.disable_flag(&Flag::Overflow);
+                    }
+                }
+                0x4B => {
+                    //ALR
+                    self.register_a = self.register_a & self.mem_read(self.program_counter);
+                    self.lsr_accumulator();
+                }
+                0xAB => {
+                    //LXA
+                    self.register_a = self.register_a & self.mem_read(self.program_counter);
+                    self.set_zn_flags_v1(self.register_a);
+                    self.tax();
+                }
+                0x87 | 0x97 | 0x83 | 0x8F => {
+                    //SAX
+                    self.sax(&opscode_data.mode);
+                }
+                0x9F | 0x93 => {
+                    //SHA
+                }
                 _ => panic!(),
             }
+            if pccopy == self.program_counter {
+                self.program_counter += (opscode_data.len - 1) as u16;
+            }
         }
+    }
+    fn tax(&mut self) {
+        self.register_x = self.register_a;
+        self.set_zn_flags_v1(self.register_x);
     }
 }
