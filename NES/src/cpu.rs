@@ -1362,10 +1362,22 @@ impl CPU {
                     self.set_zn_flags_v1(result);
                     self.register_x = result;
                 }
+                0xC3 | 0xC7 | 0xCF | 0xD3 | 0xD7 | 0xDB | 0xDF => {
+                    let mode = &opscode_data.mode;
+                    self.dec(mode);
+                    self.cmp(mode);
+                }
                 0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x04 | 0x44 | 0x64 | 0x14
                 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => {
+                    //IGN
                     let addr = self.get_operand_addressing_mode(&opscode_data.mode);
                     self.mem_read(addr);
+                }
+                0xE3 | 0xE7 | 0xEF | 0xF3 | 0xF7 | 0xFB | 0xFF => {
+                    //ISC/ISB
+                    let mode = &opscode_data.mode;
+                    self.inc(mode);
+                    self.sbc(mode);
                 }
                 0xA3 | 0xA7 | 0xAF | 0xB3 | 0xB7 | 0xBF => {
                     //LAX
