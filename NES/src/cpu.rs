@@ -579,7 +579,7 @@ impl CPU {
     fn sax(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_addressing_mode(mode);
         let result = self.register_x & self.register_a;
-        self.set_zn_flags_v1(result);
+        //self.set_zn_flags_v1(result); no status changes according to wiki
         self.mem_write(addr as u16, result)
     }
     pub fn run(&mut self) {
@@ -1311,13 +1311,18 @@ impl CPU {
                     self.register_a = self.register_y;
                     self.set_zn_flags_v1(self.register_a);
                 }
-                0xEA => {
+                0xEA | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
                     //nop
                     continue;
                 }
                 /*
                  * * * * * * * * * * Unofficial OPCODES * * * * * * * * * *
                  */
+                0x4B => {
+                    //ALR
+                    self.register_a = self.register_a & self.mem_read(self.program_counter);
+                    self.lsr_accumulator();
+                }
                 0x0B | 0x2B => {
                     //ANC
                     let result = self.register_a & self.mem_read(self.program_counter);
@@ -1346,10 +1351,26 @@ impl CPU {
                         self.disable_flag(&Flag::Overflow);
                     }
                 }
-                0x4B => {
-                    //ALR
-                    self.register_a = self.register_a & self.mem_read(self.program_counter);
-                    self.lsr_accumulator();
+                0xCB => {
+                    //AXS
+                    let operand = self.mem_read(self.program_counter);
+                    let andresult = self.register_a & self.register_x;
+                    let result = andresult.wrapping_sub(operand);
+                    if operand <= andresult {
+                        self.enable_flag(&Flag::Carry);
+                    }
+                    self.set_zn_flags_v1(result);
+                    self.register_x = result;
+                }
+                0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x04 | 0x44 | 0x64 | 0x14
+                | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => {
+                    let addr = self.get_operand_addressing_mode(&opscode_data.mode);
+                    self.mem_read(addr);
+                }
+                0xA3 | 0xA7 | 0xAF | 0xB3 | 0xB7 | 0xBF => {
+                    //LAX
+                    self.lda(&opscode_data.mode);
+                    self.tax();
                 }
                 0xAB => {
                     //LXA
@@ -1361,8 +1382,17 @@ impl CPU {
                     //SAX
                     self.sax(&opscode_data.mode);
                 }
+                0xEB => {
+                    //SBC
+                    let operand = self.mem_read(self.program_counter);
+                    self.add(((operand as i8).wrapping_neg().wrapping_sub(1)) as u8);
+                    self.set_zn_flags_v1(self.register_a);
+                }
                 0x9F | 0x93 => {
                     //SHA
+                }
+                0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 => {
+                    self.mem_read(self.program_counter);
                 }
                 _ => panic!(),
             }
