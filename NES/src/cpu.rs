@@ -289,7 +289,7 @@ impl CPU {
             0
         };
         let sum: u16 = self.register_a as u16 + addend as u16 + status_carry;
-        //let carry = sum > 0b1111_1111; //cant be represented as unsigned ie > 255 then carry
+        //cant be represented as unsigned ie > 255 then carry
         if sum > 0b1111_1111 {
             self.enable_flag(&Flag::Carry);
         } else {
@@ -1390,6 +1390,18 @@ impl CPU {
                     self.set_zn_flags_v1(self.register_a);
                     self.tax();
                 }
+                0x23 | 0x27 | 0x2F | 0x33 | 0x37 | 0x3B | 0x3F => {
+                    //RLA
+                    let mode = &opscode_data.mode;
+                    self.rol(mode);
+                    self.and(mode);
+                }
+                0x63 | 0x67 | 0x6F | 0x73 | 0x77 | 0x7B | 0x7F => {
+                    //RRA
+                    let mode = &opscode_data.mode;
+                    self.ror(mode);
+                    self.adc(mode);
+                }
                 0x87 | 0x97 | 0x83 | 0x8F => {
                     //SAX
                     self.sax(&opscode_data.mode);
@@ -1403,8 +1415,21 @@ impl CPU {
                 0x9F | 0x93 => {
                     //SHA
                 }
+                0x03 | 0x07 | 0x0F | 0x13 | 0x17 | 0x1B | 0x1F => {
+                    //SLO
+                    let mode = &opscode_data.mode;
+                    self.asl(mode);
+                    self.ora(mode);
+                }
                 0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 => {
+                    //SKB
                     self.mem_read(self.program_counter);
+                }
+                0x43 | 0x47 | 0x4F | 0x53 | 0x57 | 0x5B | 0x5F => {
+                    //SRE
+                    let mode = &opscode_data.mode;
+                    self.lsr(mode);
+                    self.eor(mode);
                 }
                 _ => panic!(),
             }
