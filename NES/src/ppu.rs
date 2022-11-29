@@ -1,51 +1,113 @@
-use rom::Mirroring;
-struct PPU {
+use crate::ppu_utils::AddressRegister::AddressRegister;
+use crate::ppu_utils::ControllerRegister::ControllerRegister;
+use crate::ppu_utils::MaskRegister::MaskRegister;
+use crate::ppu_utils::ScrollRegister::ScrollRegister;
+use crate::ppu_utils::StatusRegister::StatusFlag;
+use crate::ppu_utils::StatusRegister::StatusRegister;
+use crate::rom::Mirroring;
+pub struct PPU {
     pub chr_rom: Vec<u8>,
     pub palette: [u8; 32],
     pub vram: [u8; 2048],
-    pub oam_data: [u8; 256],
     pub mirroring: Mirroring,
-    pub address: AddressRegister,
+    pub oam_address: u8,
+    pub oam_data: [u8; 256],
     pub controller: ControllerRegister,
+    pub scroll: ScrollRegister,
+    pub address: AddressRegister,
+    pub mask: MaskRegister,
+    pub status: StatusRegister,
     pub data_buffer: u8,
-}
-struct AddressRegister {
-    value: (u8, u8),
-    hi_ptr: bool,
-}
-pub enum ControllerFlag {
-    Nametable1,
-    Nametable2,
-    VramAddress,
-    SpriteAddress,
-    BackgroundAddress,
-    SpriteSize,
-    MasterSlaveSelect,
-    GenerateNmi,
-}
-pub struct ControllerRegister {
-    pub cregister: u8,
+    pub scanline: u16,
+    pub cycles: usize,
+    pub nmi_interrupt: Option<u8>,
 }
 impl PPU {
     pub fn new(chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
         PPU {
             chr_rom: chr_rom,
-            mirroring: mirroring,
+            palette: [0; 32],
             vram: [0; 2048],
+            mirroring: mirroring,
+            oam_address: 0,
             oam_data: [0; 64 * 4],
-            palette_table: [0; 32],
+            controller: ControllerRegister::new(),
+            scroll: ScrollRegister::new(),
+            address: AddressRegister::new(),
+            mask: MaskRegister::new(),
+            status: StatusRegister::new(),
+            data_buffer: 0,
+            scanline: 0,
+            cycles: 0,
+            nmi_interrupt: None,
         }
     }
-    fn write_ppu_address(&mut self, value: u8) {
-        self.address.update(value);
+    pub fn tick(&mut self, cycles: u8) -> bool {
+        self.cycles += cycles as usize;
+        if self.cycles >= 341 {
+            self.cycles = self.cycles - 341;
+            self.scanline += 1;
+            if self.scanline == 241 {
+                self.status.enable_flag(&StatusFlag::VBlank);
+                self.status.disable_flag(&StatusFlag::SpriteZero);
+                if self.controller.generate_nmi() {
+                    self.nmi_interrupt = Some(1);
+                }
+            }
+            if self.scanline >= 262 {
+                self.scanline = 0;
+                self.nmi_interrupt = None;
+                self.status.disable_flag(&StatusFlag::SpriteZero);
+                self.status.disable_flag(&StatusFlag::VBlank);
+                return true;
+            }
+        }
+
+        return false;
     }
-    fn write_controller(&mut self, value: u8) {
-        self.ctrl.update(value);
+    fn poll_nmi(&mut self) -> Option<u8> {
+        self.nmi_interrupt.take()
+    }
+    pub fn write_mask(&mut self, data: u8) {
+        self.mask.update(data);
+    }
+    pub fn write_ppu_address(&mut self, data: u8) {
+        self.address.update(data);
+    }
+    pub fn write_scroll(&mut self, data: u8) {
+        self.scroll.write(data);
+    }
+    pub fn write_controller(&mut self, data: u8) {
+        let nmi_copy = self.controller.generate_nmi();
+        self.controller.update(data);
+        if !nmi_copy
+            && self.controller.generate_nmi()
+            && self.status.get_register_status(&StatusFlag::VBlank)
+        {
+            self.nmi_interrupt = Some(1);
+        }
+    }
+    pub fn read_status(&mut self) -> u8 {
+        let data = self.status.snapshot();
+        self.status.disable_flag(&StatusFlag::VBlank);
+        self.address.reset_latch();
+        self.scroll.reset_latch();
+        data
     }
     fn increment_vram_address(&mut self) {
         self.address.increment(self.controller.vram_address_inc());
     }
-    fn read_data(&mut self) -> u8 {
+    pub fn write_oam_address(&mut self, data: u8) {
+        self.oam_address = data;
+    }
+    pub fn write_oam_data(&mut self, data: u8) {
+        self.oam_data[self.oam_address as usize] = data;
+        self.oam_address = self.oam_address.wrapping_add(1);
+    }
+    pub fn read_oam_data(&self) -> u8 {
+        self.oam_data[self.oam_address as usize]
+    }
+    pub fn read_data(&mut self) -> u8 {
         let addr = self.address.get();
         self.increment_vram_address();
         match addr {
@@ -64,9 +126,44 @@ impl PPU {
                 "Address space 0x3000..0x3eff is not used by PPU, requested: {}",
                 addr
             ),
-            0x3f00..=0x3fff => self.palette_table[(addr - 0x3f00) as usize],
-            _ => panic!("Unexpected access to mirrored space at: {}", addr),
+            0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
+                //various mirrored locations
+                let mirror = addr - 0x10;
+                self.palette[(mirror - 0x3f00) as usize]
+            }
+            0x3f00..=0x3fff => self.palette[(addr - 0x3f00) as usize],
+            _ => panic!("Unexpected read of mirrored space at: {}", addr),
         }
+    }
+    pub fn write_oam_dma(&mut self, data: &[u8; 256]) {
+        for x in data.iter() {
+            self.oam_data[self.oam_address as usize] = *x;
+            self.oam_address = self.oam_address.wrapping_add(1);
+        }
+    }
+    pub fn write_data(&mut self, data: u8) {
+        let addr = self.address.get();
+        match addr {
+            0..=0x1fff => {
+                panic!("Attempt to write to chr rom space at: {}", addr);
+            }
+            0x2000..=0x2fff => {
+                //mirrored location
+                self.vram[self.mirror_address(addr) as usize] = data;
+            }
+            0x3000..=0x3eff => panic!(
+                "Address space 0x3000..0x3eff is not used by PPU, requested: {}",
+                addr
+            ),
+            0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
+                //various mirrored locations
+                let mirror = addr - 0x10;
+                self.palette[(mirror - 0x3f00) as usize] = data;
+            }
+            0x3f00..=0x3fff => self.palette[(addr - 0x3f00) as usize] = data,
+            _ => panic!("Unexpected write to mirrored space at: {}", addr),
+        }
+        self.increment_vram_address();
     }
     // Horizontal:
     //   [ A ] [ a ]
@@ -75,73 +172,16 @@ impl PPU {
     // Vertical:
     //   [ A ] [ B ]
     //   [ a ] [ b ]
-    pub fn mirror_address(&self, addr: u16) -> u16 {}
-}
-impl AddressRegister {
-    pub fn new() -> Self {
-        AddressRegister {
-            value: (0, 0),
-            hi_ptr: true,
-        }
-    }
-    fn set(&mut self, data: u16) {
-        self.value.0 = (data >> 8) as u8;
-        self.value.1 = (data & 0xff) as u8;
-    }
-    pub fn update(&mut self, data: u8) {
-        if self.hi_ptr {
-            self.value.0 = data;
-        } else {
-            self.value.1 = data;
-        }
-        let t = self.get();
-        if t > 0x3fff {
-            self.set(t & 0b11111111111111);
-        }
-        self.hi_ptr = !self.hi_ptr;
-    }
-    pub fn increment(&mut self, inc: u8) {
-        let lo = self.value.1;
-        self.value.1 = self.value.1.wrapping_add(inc);
-        if lo > self.value.1 {
-            self.value.0 = self.value.0.wrapping_add(1);
-        }
-        let t = self.get();
-        if t > 0x3fff {
-            self.set(t & 0b11111111111111);
-        }
-    }
-    pub fn reset_latch(&mut self) {
-        self.hi_ptr = true;
-    }
-    pub fn get(&self) -> u16 {
-        ((self.value.0 as u16) << 8) | self.value.1 as u16
-    }
-}
-impl ControllerRegister {
-    pub fn new() -> self {
-        self.cregister = 0b0000_0000;
-    }
-    pub fn vram_address_inc(&self) -> u8 {
-        if !self.get_register_status(&ControllerFlag::VramAddress) {
-            1
-        } else {
-            32
-        }
-    }
-    pub fn update(&mut self, data: u8) {
-        self.cregister = data;
-    }
-    pub fn get_register_status(&self, cflag: &ControllerFlag) -> bool {
-        match cflag {
-            ControllerFlag::Nametable1 => self.status & 0b0000_0001 != 0,
-            ControllerFlag::Nametable2 => self.status & 0b0000_0010 != 0,
-            ControllerFlag::VramAddress => self.status & 0b0000_0100 != 0,
-            ControllerFlag::SpriteAddress => self.status & 0b0000_1000 != 0,
-            ControllerFlag::BackgroundAddress => self.status & 0b0001_0000 != 0,
-            ControllerFlag::SpriteSize => self.status & 0b0010_0000 != 0,
-            ControllerFlag::MasterSlaveSelect => self.status & 0b0100_0000 != 0,
-            ControllerFlag::GenerateNmi => self.status & 0b1000_0000 != 0,
+    pub fn mirror_address(&self, addr: u16) -> u16 {
+        let mirrored_vram = addr & 0b10111111111111; //shift 0x3000-3eff to 0x2000-0x2eff
+        let vram_index = mirrored_vram - 0x2000;
+        let name_table = vram_index / 0x400;
+        match (&self.mirroring, name_table) {
+            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => vram_index - 0x800,
+            (Mirroring::Horizontal, 1) => vram_index - 0x400,
+            (Mirroring::Horizontal, 2) => vram_index - 0x400,
+            (Mirroring::Horizontal, 3) => vram_index - 0x400,
+            _ => vram_index,
         }
     }
 }

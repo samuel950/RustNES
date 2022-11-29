@@ -47,13 +47,13 @@ program counter - the current memory address. 2 bytes increment once, 3 bytes in
 -In 2's complement, to make positive number negative, invert bits and add 1.
  */
 impl Memory for CPU {
-    fn mem_read(&self, addr: u16) -> u8 {
+    fn mem_read(&mut self, addr: u16) -> u8 {
         self.bus.mem_read(addr)
     }
     fn mem_write(&mut self, addr: u16, data: u8) {
         self.bus.mem_write(addr, data);
     }
-    fn mem_read_u16(&self, pos: u16) -> u16 {
+    fn mem_read_u16(&mut self, pos: u16) -> u16 {
         self.bus.mem_read_u16(pos)
     }
     fn mem_write_u16(&mut self, pos: u16, data: u16) {
@@ -134,7 +134,7 @@ impl CPU {
     fn is_negative(&self, target: u8) -> bool {
         target & 0b1000_0000 != 0
     }
-    fn get_operand_addressing_mode(&self, mode: &AddressingMode) -> u16 {
+    fn get_operand_addressing_mode(&mut self, mode: &AddressingMode) -> u16 {
         match mode {
             AddressingMode::Immediate => self.program_counter,
             AddressingMode::ZeroPage => self.mem_read(self.program_counter) as u16,
@@ -177,7 +177,7 @@ impl CPU {
             }
         }
     }
-    pub fn get_operand_addressing_mode_trace(&self, mode: &AddressingMode, pc: u16) -> u16 {
+    pub fn get_operand_addressing_mode_trace(&mut self, mode: &AddressingMode, pc: u16) -> u16 {
         match mode {
             AddressingMode::Immediate => self.program_counter,
             AddressingMode::ZeroPage => self.mem_read(pc) as u16,
@@ -279,7 +279,8 @@ impl CPU {
      */
     fn adc(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_addressing_mode(mode);
-        self.add(self.mem_read(addr));
+        let d = self.mem_read(addr);
+        self.add(d);
         self.set_zn_flags_v1(self.register_a);
     }
     fn add(&mut self, addend: u8) {
@@ -445,6 +446,17 @@ impl CPU {
         self.register_y = self.register_y.wrapping_add(1);
         self.set_zn_flags_v1(self.register_y);
     }
+    fn interrupt_nmi(&mut self) {
+        self.stack_push_u16(self.program_counter);
+        let mut flagcopy = self.status.clone();
+        self.disable_flag(&Flag::Break);
+        self.enable_flag(&Flag::Break2);
+        self.stack_push(self.status);
+        self.status = flagcopy;
+        self.enable_flag(&Flag::IRQ);
+        self.bus.tick(2);
+        self.program_counter = self.mem_read_u16(0xfffa);
+    }
     fn lda(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_addressing_mode(mode);
         self.register_a = self.mem_read(addr);
@@ -591,6 +603,9 @@ impl CPU {
     {
         let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
         loop {
+            if let Some(_nmi) = self.bus.poll_nmi() {
+                self.interrupt_nmi();
+            }
             callback(self);
             let opscode = self.mem_read(self.program_counter);
             let opscode_data = opcodes.get(&opscode).unwrap();
@@ -1433,6 +1448,7 @@ impl CPU {
                 }
                 _ => panic!(),
             }
+            self.bus.tick(opscode_data.cycles);
             if pccopy == self.program_counter {
                 self.program_counter += (opscode_data.len - 1) as u16;
             }
