@@ -10,7 +10,7 @@ impl Frame {
             data: vec![0; (Frame::W) * (Frame::H) * 3],
         }
     }
-    //abstractionlayer to avoid direction ineraction with SDL
+    //abstractionlayer to avoid direct ineraction with SDL
     pub fn set_pixel(&mut self, x: usize, y: usize, rgb: (u8, u8, u8)) {
         let base = y * 3 * Frame::W + x * 3;
         if base + 2 < self.data.len() {

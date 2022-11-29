@@ -43,6 +43,10 @@ impl PPU {
         }
     }
     pub fn tick(&mut self, cycles: u8) -> bool {
+        /*println!(
+            "ppu cycle: {}. ppu scanline: {}\n",
+            self.cycles, self.scanline
+        );*/
         self.cycles += cycles as usize;
         if self.cycles >= 341 {
             self.cycles = self.cycles - 341;
@@ -65,7 +69,7 @@ impl PPU {
 
         return false;
     }
-    fn poll_nmi(&mut self) -> Option<u8> {
+    pub fn poll_nmi(&mut self) -> Option<u8> {
         self.nmi_interrupt.take()
     }
     pub fn write_mask(&mut self, data: u8) {

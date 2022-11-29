@@ -1,10 +1,11 @@
 use crate::ppu::PPU;
 use crate::rom::Rom;
-pub struct Bus {
+pub struct Bus<'call> {
     cpu_vram: [u8; 2048],
     prg_rom: Vec<u8>,
-    ppu: PPU,
-    cycles: usize,
+    pub ppu: PPU,
+    pub cycles: usize,
+    game_callback: Box<dyn FnMut(&PPU) + 'call>,
 }
 pub trait Memory {
     fn mem_read(&mut self, addr: u16) -> u8;
@@ -28,14 +29,18 @@ const RAM_MIRROR: u16 = 0x1FFF;
 const PPU_REGISTERS: u16 = 0x2000;
 const PPU_REGISTERS_MIRROR: u16 = 0x3FFF;
 
-impl Bus {
-    pub fn new(rom: Rom) -> Self {
+impl<'a> Bus<'a> {
+    pub fn new<'call, F>(rom: Rom, game_callback: F) -> Bus<'call>
+    where
+        F: FnMut(&PPU) + 'call,
+    {
         let ppu = PPU::new(rom.chr_rom, rom.screen_mirroring);
         Bus {
             cpu_vram: [0; 2048],
             prg_rom: rom.prg_rom,
             ppu: ppu,
             cycles: 0,
+            game_callback: Box::from(game_callback),
         }
     }
     fn read_prg_rom(&self, mut addr: u16) -> u8 {
@@ -47,14 +52,20 @@ impl Bus {
         self.prg_rom[addr as usize]
     }
     pub fn tick(&mut self, cycles: u8) {
+        //println!("bus cycles: {}", self.cycles);
         self.cycles += cycles as usize;
+        let before_nmi = self.ppu.nmi_interrupt.is_some();
         self.ppu.tick(cycles * 3);
+        let after_nmi = self.ppu.nmi_interrupt.is_some();
+        if !before_nmi && after_nmi {
+            (self.game_callback)(&self.ppu);
+        }
     }
     pub fn poll_nmi(&mut self) -> Option<u8> {
-        self.ppu.nmi_interrupt.take()
+        self.ppu.poll_nmi()
     }
 }
-impl Memory for Bus {
+impl Memory for Bus<'_> {
     fn mem_read(&mut self, addr: u16) -> u8 {
         match addr {
             RAM..=RAM_MIRROR => {
@@ -62,7 +73,8 @@ impl Memory for Bus {
                 self.cpu_vram[mirror_addr as usize]
             }
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
-                panic!("Attempt to read from write-only PPU address {:x}!", addr);
+                println!("Attempt to read from write-only PPU address {:x}!", addr);
+                0
             }
             0x2002 => self.ppu.read_status(),
             0x2004 => self.ppu.read_oam_data(),
