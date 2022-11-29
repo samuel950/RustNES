@@ -93,6 +93,7 @@ impl PPU {
     }
     pub fn read_status(&mut self) -> u8 {
         let data = self.status.snapshot();
+        println!("read status data: {:x}", data);
         self.status.disable_flag(&StatusFlag::VBlank);
         self.address.reset_latch();
         self.scroll.reset_latch();

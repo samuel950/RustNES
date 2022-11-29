@@ -101,6 +101,9 @@ fn trace(cpu: &mut CPU) -> String {
         register_a, register_x, register_y, p, sp
     );
     let ppuSL = cpu.bus.ppu.scanline;
+    if ppuSL == 242 {
+        std::process::exit(0);
+    }
     let ppucyc = cpu.bus.ppu.cycles;
     let buscyc = cpu.bus.cycles;
     let ppuinfo = format!("PPU:{:3},{:3} CYC:{}", ppuSL, ppucyc, buscyc);
@@ -288,7 +291,7 @@ fn main() {
     cpu.bus.tick(7); //for nestest rom
     cpu.run_with_callback(move |cpu| {
         println!("{}", trace(cpu));
-        //::std::thread::sleep(std::time::Duration::from_nanos(1000000));
+        ::std::thread::sleep(std::time::Duration::from_nanos(10000));
     });
 
     /*
