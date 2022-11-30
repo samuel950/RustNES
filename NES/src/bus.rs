@@ -1,3 +1,4 @@
+use crate::joypads::Joypad;
 use crate::ppu::PPU;
 use crate::rom::Rom;
 pub struct Bus<'call> {
@@ -5,7 +6,8 @@ pub struct Bus<'call> {
     prg_rom: Vec<u8>,
     pub ppu: PPU,
     pub cycles: usize,
-    game_callback: Box<dyn FnMut(&PPU) + 'call>,
+    game_callback: Box<dyn FnMut(&PPU, &mut Joypad) + 'call>,
+    joypad1: Joypad,
 }
 pub trait Memory {
     fn mem_read(&mut self, addr: u16) -> u8;
@@ -32,7 +34,7 @@ const PPU_REGISTERS_MIRROR: u16 = 0x3FFF;
 impl<'a> Bus<'a> {
     pub fn new<'call, F>(rom: Rom, game_callback: F) -> Bus<'call>
     where
-        F: FnMut(&PPU) + 'call,
+        F: FnMut(&PPU, &mut Joypad) + 'call,
     {
         let ppu = PPU::new(rom.chr_rom, rom.screen_mirroring);
         Bus {
@@ -41,6 +43,7 @@ impl<'a> Bus<'a> {
             ppu: ppu,
             cycles: 0,
             game_callback: Box::from(game_callback),
+            joypad1: Joypad::new(),
         }
     }
     fn read_prg_rom(&self, mut addr: u16) -> u8 {
@@ -58,7 +61,7 @@ impl<'a> Bus<'a> {
         self.ppu.tick(cycles * 3);
         let after_nmi = self.ppu.nmi_interrupt.is_some();
         if !before_nmi && after_nmi {
-            (self.game_callback)(&self.ppu);
+            (self.game_callback)(&self.ppu, &mut self.joypad1);
         }
     }
     pub fn poll_nmi(&mut self) -> Option<u8> {
@@ -89,7 +92,7 @@ impl Memory for Bus<'_> {
             }
             0x4016 => {
                 //joypad 1
-                0
+                self.joypad1.read()
             }
             0x4017 => {
                 //joypad 2
@@ -141,6 +144,7 @@ impl Memory for Bus<'_> {
             }
             0x4016 => {
                 //joypad 1
+                self.joypad1.write(data);
             }
             0x4017 => {
                 //joypad 2
