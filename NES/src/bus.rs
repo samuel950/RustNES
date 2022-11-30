@@ -83,9 +83,21 @@ impl Memory for Bus<'_> {
                 let ppu_mirror_addr = addr & 0b00100000_00000111;
                 self.mem_read(ppu_mirror_addr)
             }
+            0x4000..=0x4015 => {
+                //apu not yet implemented
+                0
+            }
+            0x4016 => {
+                //joypad 1
+                0
+            }
+            0x4017 => {
+                //joypad 2
+                0
+            }
             0x8000..=0xFFFF => self.read_prg_rom(addr),
             _ => {
-                println!("Cannot read memory at {}!", addr);
+                println!("Cannot read memory at {:x}!", addr);
                 0
             }
         }
@@ -124,11 +136,30 @@ impl Memory for Bus<'_> {
                 let ppu_mirror_addr = addr & 0b00100000_00000111;
                 self.mem_write(ppu_mirror_addr, data);
             }
+            0x4000..=0x4013 | 0x4015 => {
+                //apu not yet implemented
+            }
+            0x4016 => {
+                //joypad 1
+            }
+            0x4017 => {
+                //joypad 2
+            }
+            0x4014 => {
+                //oam dma
+                let mut buffer: [u8; 256] = [0; 256];
+                let hi = (data as u16) << 8;
+                for i in 0..256u16 {
+                    buffer[i as usize] = self.mem_read(hi + i);
+                }
+                self.ppu.write_oam_dma(&buffer);
+                //must implement correct cycle logic for oam dma write.
+            }
             0x8000..=0xFFFF => {
                 panic!("Attempt to write to cartridge ROM space!")
             }
             _ => {
-                println!("Cannot write {} to {}!", data, addr);
+                println!("Cannot write {} to {:x}!", data, addr);
             }
         }
     }

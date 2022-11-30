@@ -651,8 +651,6 @@ impl<'a> CPU<'a> {
         loop {
             if let Some(_nmi) = self.bus.poll_nmi() {
                 self.interrupt_nmi();
-                println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!INSIDE INTERUPT!!!!!!!!!!!!!!!!!");
-                std::process::exit(0);
             }
             callback(self);
             let opscode = self.mem_read(self.program_counter);
